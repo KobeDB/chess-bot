@@ -84,7 +84,7 @@ struct Chess {
         for (int i = 0; i < 32; ++i) if (!pieces[i].taken) board[to_index(pieces[i].r, pieces[i].c)] = &pieces[i];
     }
 
-    Array<Move> legal_moves() const {
+    Array<Move> legal_moves(bool check_self_check = true) const {
         Array<Move> result {};
 
         const Piece *board[64] {};
@@ -138,9 +138,14 @@ struct Chess {
                         }
                     }
 
+                    // TODO: en-passant moves
+
                     // check for promotions
                     for (int raw_move_i = 0; raw_move_i < raw_moves.size(); ++raw_move_i) {
                         Move &raw_move = raw_moves[raw_move_i];
+
+                        if (check_self_check && does_move_cause_self_check(raw_move)) continue;
+                        
                         if (raw_move.dest_r == 7 && piece.color == WHITE || raw_move.dest_r == 0 && piece.color == BLACK) {
                             // The pawn must promote => push only promotion moves in result
 
@@ -154,11 +159,19 @@ struct Chess {
                             result.push(raw_move);
                             raw_move.promotion_type = BISHOP;
                             result.push(raw_move);
-                            
                         } else {
                             result.push(raw_move);
                         }
                     }
+                } break;
+
+                case ROOK: {
+                    add_legal_moves_for_direction(result, i, piece.r, piece.c, -1,  0, board, check_self_check);
+                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  1,  0, board, check_self_check);
+                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  0, -1, board, check_self_check);
+                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  0,  1, board, check_self_check);
+
+                    // TODO: castling
                 } break;
 
                 default: break;
@@ -166,6 +179,39 @@ struct Chess {
         }
 
         return result;
+    }
+
+    void add_legal_moves_for_direction(Array<Move> &legal_moves, int piece_i, int r, int c, int step_r, int step_c, const Piece **board, bool check_self_check) const {
+        int cur_r = r + step_r;
+        int cur_c = c + step_c;
+        while (is_valid_pos(cur_r, cur_c)) {
+            defer ( { cur_r += step_r; cur_c += step_c; } );
+            const Piece *other_piece = board[to_index(cur_r, cur_c)];
+            if (other_piece && other_piece->color != turn) {
+                Move move {};
+                move.piece = piece_i;
+                move.dest_r = cur_r;
+                move.dest_c = cur_c;
+                move.taken_piece = other_piece->index;
+
+                if (!check_self_check || !does_move_cause_self_check(move)) {
+                    legal_moves.push(move);
+                }
+                
+                break; // Break to not teleport through the piece
+            }
+
+            if (other_piece && other_piece->color == turn) break; // Break to not teleport through the piece
+
+            // other_piece == nullptr => empty square
+            Move move {};
+            move.piece = piece_i;
+            move.dest_r = cur_r;
+            move.dest_c = cur_c;
+            if (!check_self_check || !does_move_cause_self_check(move)) {
+                legal_moves.push(move);
+            }
+        }
     }
 
     void get_taken_pieces(int *taken_pieces, int &taken_pieces_count, int color) const {
@@ -202,7 +248,19 @@ struct Chess {
     }
 
     bool does_move_cause_self_check(const Move &move) const {
-        // TODO
+        Chess simulated_move_state = next_state(move);
+
+        auto legal_moves = simulated_move_state.legal_moves(false);
+        defer( legal_moves.destroy() );
+
+        for (int i = 0; i < legal_moves.size(); ++i) {
+            const Move &legal_move = legal_moves[i];
+            const Piece &taken_piece = simulated_move_state.pieces[legal_move.taken_piece];
+            if (taken_piece.type == KING && taken_piece.color == turn) {
+                return true;
+            }
+        }
+
         return false;
     }
 
@@ -278,6 +336,7 @@ void print_legal_moves(const Chess &chess, const Array<Move> &legal_moves) {
 
 Move get_user_move(Chess &chess, bool &move_ok) {
     auto legal_moves = chess.legal_moves();
+    defer( legal_moves.destroy() );
     print_legal_moves(chess, legal_moves);
     printf("Give a move: ");
     char piece {};
