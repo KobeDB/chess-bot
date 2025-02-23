@@ -2,6 +2,7 @@
 #include <stdlib.h>
 
 #include "array.h"
+#include "basic.h"
 
 enum Piece_Type {
     PAWN,
@@ -98,6 +99,7 @@ struct Chess {
                 
                 case PAWN: {
                     Array<Move> raw_moves {};
+                    defer( raw_moves.destroy() );
 
                     // normal forward step
                     int steps_forward = (piece.r == 1 && piece.color == WHITE || piece.r == 6 && piece.color == BLACK) ? 2 : 1;
@@ -190,6 +192,10 @@ struct Chess {
             next.pieces[move.taken_piece].taken = true;
             next.pieces[move.taken_piece].r = -1;
             next.pieces[move.taken_piece].c = -1;
+        }
+
+        if (move.is_promotion) {
+            next.pieces[move.piece].type = move.promotion_type;
         }
         
         return next;
