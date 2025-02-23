@@ -114,11 +114,11 @@ struct Array {
         }
     }
 
-    T *get_element_ptr(int index) {
+    T *get_element_ptr(int index) const {
         return (T*)(elements + index * sizeof(T));
     }
 
-    void verify_index(int index) {
+    void verify_index(int index) const {
         if (index < 0 || index >= m_size) {
             fprintf(stderr, "Array: index out of bounds");
             exit(1);

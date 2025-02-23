@@ -1,1 +1,1 @@
-cl main.cpp
+cl -Zi main.cpp

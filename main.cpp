@@ -113,7 +113,11 @@ struct Chess {
                     for (int attack_c = -1; attack_c <= 1; ++attack_c) {
                         if (attack_c == 0) continue;
                         int attack_r = piece.r + step_dir;
+
+                        if (!is_valid_pos(attack_r, attack_c)) continue;
+                        
                         const Piece *attacked_piece = board[to_index(attack_r, attack_c)];
+                        
                         if (attacked_piece) {
                             Move move {};
                             move.piece = i;
@@ -195,15 +199,12 @@ struct Chess {
         printf("\n");
     }
 
-    // const Square *get_square(int row, int col) const {
-    //     if (row < 0 || row >= 8 || col < 0 || col >= 8) {
-    //         return nullptr;
-    //     }
-    //     return &board[to_index(row, col)];
-    // }
+    bool is_valid_pos(int row, int col) const {
+        return row >= 0 && row < 8 && col >= 0 && col < 8; 
+    }
 
     int to_index(int row, int col) const {
-        if (row < 0 || row >= 8 || col < 0 || col >= 8) {
+        if (!is_valid_pos(row, col)) {
             fprintf(stderr, "to_index: invalid row and col: %d, %d", row, col);
             exit(1);
         }
@@ -218,10 +219,22 @@ struct Minimax_Result {
     int value;
 };
 
+void print_legal_moves(const Chess &chess, const Array<Move> &legal_moves) {
+    printf("Legal moves:\n");   
+    for (int i = 0; i < legal_moves.size(); ++i) {
+        const Move &move = legal_moves[i];
+        const Piece &piece = chess.pieces[move.piece];
+        char pc = chess.piece_to_char(piece);
+        printf("%c to (%d, %d)\n", pc, move.dest_r, move.dest_c);
+    }
+}
+
 int main() {
     printf("Hello there\n");
     Chess chess {};
     chess.draw();
+    print_legal_moves(chess, chess.legal_moves());
+
 
     Move move {};
     move.piece = 0;
@@ -229,4 +242,7 @@ int main() {
     move.dest_r = 3;
     chess = chess.next_state(move);
     chess.draw();
+
+    auto legal_moves = chess.legal_moves();
+    print_legal_moves(chess, legal_moves);
 }
