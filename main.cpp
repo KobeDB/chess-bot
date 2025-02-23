@@ -23,7 +23,8 @@ struct Move {
     int taken_piece = -1;
     bool is_promotion = false; // if true, piece refers to the pawn, dest_r & dest_c to the promotion location, promoted_type to the promoted piece
     Piece_Type promotion_type;
-    bool is_castling = false; // if true, piece refers to the king
+    bool is_castling = false; // if true, piece refers to the king, dest_r & dest_c to the king's castling position
+    int castling_rook = -1; // refers to the rook we are castling with
 };
 
 struct Piece {
@@ -170,8 +171,82 @@ struct Chess {
                     add_legal_moves_for_direction(result, i, piece.r, piece.c,  1,  0, board, check_self_check);
                     add_legal_moves_for_direction(result, i, piece.r, piece.c,  0, -1, board, check_self_check);
                     add_legal_moves_for_direction(result, i, piece.r, piece.c,  0,  1, board, check_self_check);
+                    // castling
+                    if (!piece.has_moved) {
+                        // search for king
+                        int search_dir = piece.c == 0 ? 1 : -1;
+                        int start_c = piece.c == 0 ? 1 : 6;
+                        for (int c = start_c; c < 8 && c >= 0; c += search_dir) {
+                            const Piece *row_piece = board[to_index(piece.r, c)];
+                            if (!row_piece) continue;
+                            if (row_piece && row_piece->type == KING && row_piece->color == piece.color && !row_piece->has_moved) {
+                                Move move {};
+                                move.piece = row_piece->index;
+                                move.dest_r = row_piece->r;
+                                move.dest_c = (row_piece->c - piece.c) > 0 ? 2 : 6;
+                                move.is_castling = true;
+                                move.castling_rook = piece.index;
+                                if (!check_self_check || !does_move_cause_self_check(move)) {
+                                    result.push(move);
+                                }
+                            } else {
+                                // piece is not the king or he has moved => break
+                                break;
+                            }
+                        }
+                    }
+                } break;
 
-                    // TODO: castling
+                case BISHOP: {
+                    add_legal_moves_for_direction(result, i, piece.r, piece.c, -1, -1, board, check_self_check);
+                    add_legal_moves_for_direction(result, i, piece.r, piece.c, -1,  1, board, check_self_check);
+                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  1, -1, board, check_self_check);
+                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  1,  1, board, check_self_check);
+                } break;
+
+                case QUEEN: {
+                    add_legal_moves_for_direction(result, i, piece.r, piece.c, -1,  0, board, check_self_check);
+                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  1,  0, board, check_self_check);
+                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  0, -1, board, check_self_check);
+                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  0,  1, board, check_self_check);
+
+                    add_legal_moves_for_direction(result, i, piece.r, piece.c, -1, -1, board, check_self_check);
+                    add_legal_moves_for_direction(result, i, piece.r, piece.c, -1,  1, board, check_self_check);
+                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  1, -1, board, check_self_check);
+                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  1,  1, board, check_self_check);
+                } break;
+
+                case KNIGHT: {
+                    const int offsets[] = {
+                         2,  1,
+                         2, -1,
+                        -2,  1,
+                        -2, -1,
+                         1,  2,
+                         1, -2,
+                        -1,  2,
+                        -1, -2
+                    };
+
+                    for (int off_i = 0; off_i < 8; ++off_i) {
+                        int off_r = offsets[off_i * 2];
+                        int off_c = offsets[off_i * 2 + 1];
+                        int dest_r = piece.r + off_r;
+                        int dest_c = piece.c + off_c;
+                        maybe_add_move(result, piece, dest_r, dest_c, board, check_self_check);
+                    }
+                    
+                } break;
+
+                case KING: {
+                    for (int off_r = -1; off_r <= 1; ++off_r) {
+                        for (int off_c = -1; off_c <= 1; ++off_c) {
+                            if (off_r == 0 && off_c == 0) continue;
+                            int dest_r = piece.r + off_r;
+                            int dest_c = piece.c + off_c;
+                            maybe_add_move(result, piece, dest_r, dest_c, board, check_self_check);
+                        }
+                    }
                 } break;
 
                 default: break;
@@ -179,6 +254,29 @@ struct Chess {
         }
 
         return result;
+    }
+
+    bool maybe_add_move(Array<Move> &legal_moves, const Piece &piece, int dest_r, int dest_c, const Piece **board, bool check_self_check) const {
+        if (is_valid_pos(dest_r, dest_c)) {
+            const Piece *other_piece = board[to_index(dest_r, dest_c)];
+
+            if (other_piece && other_piece->color == piece.color) return false;
+            
+            Move move {};
+            move.piece = piece.index;
+            move.dest_r = dest_r;
+            move.dest_c = dest_c;
+            
+            if (other_piece && other_piece->color != piece.color) {
+                move.taken_piece = other_piece->index;
+            }
+
+            if (!check_self_check || !does_move_cause_self_check(move)) {
+                legal_moves.push(move);
+                return true;
+            }
+        }
+        return false;
     }
 
     void add_legal_moves_for_direction(Array<Move> &legal_moves, int piece_i, int r, int c, int step_r, int step_c, const Piece **board, bool check_self_check) const {
@@ -242,6 +340,12 @@ struct Chess {
 
         if (move.is_promotion) {
             next.pieces[move.piece].type = move.promotion_type;
+        }
+
+        if (move.is_castling) {
+            // we already moved the king (move.piece refers to the king), now move the rook
+            next.pieces[move.castling_rook].r = move.dest_r;
+            next.pieces[move.castling_rook].c = move.dest_c == 2 ? 3 : 5;
         }
         
         return next;
