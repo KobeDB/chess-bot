@@ -15,53 +15,29 @@ enum Piece_Type {
 #define WHITE 0
 #define BLACK 1
 
-struct Square {
-    Piece_Type type {};
-    int color {};
-    bool has_moved {};
-    bool is_empty = true;
+struct Move {
+    int piece;
+    int dest_r;
+    int dest_c;
+    int taken_piece = -1;
 };
 
-Square make_piece(Piece_Type type, int color) {
-    Square result {};
-    result.type = type;
-    result.color = color;
-    result.is_empty = false;
-    result.has_moved = false;
-    return result;
-}
+struct Piece {
+    Piece_Type type {};
+    int color {};
+    int r {};
+    int c {};
+    bool has_moved = false;
+    bool taken = false;
+    int index; // piece's own index in the pieces array, this is probably dumb but whatever
 
-char square_to_char(const Square &square) {
-    if (square.is_empty) return '.';
-    
-    char result = '?';
-    switch (square.type) {
-        case PAWN:      result = 'P'; break;
-        case ROOK:      result = 'R'; break;
-        case KNIGHT:    result = 'N'; break;
-        case BISHOP:    result = 'B'; break;
-        case QUEEN:     result = 'Q'; break;
-        case KING:      result = 'K'; break;
-        default: fprintf(stderr, "square_to_char: invalid chess piece"); return '?';
-    }
+    Piece() {}
 
-    if (square.color == BLACK) result += ('a' - 'A');
-
-    return result;
-}
-
-struct Move {
-    int remove_r;
-    int remove_c;
-    int place_r;
-    int place_c;
-    Piece_Type piece;
-    int color;
-    bool is_castling = false;
+    Piece(Piece_Type type, int color, int r, int c, int index) : type{type}, color{color}, r{r}, c{c}, index{index} {}
 };
 
 struct Chess {
-    Square board[64] {};
+    Piece pieces[32] {};
     int turn = WHITE;
 
     Chess() {
@@ -69,13 +45,13 @@ struct Chess {
     }
 
     void reset() {
-        for (int i = 0; i < 64; ++i) board[i] = {};
-        turn = 0;
+        
+        turn = WHITE;
 
-        // pawns
-        for (int c = 0; c < 8; ++c) {
-            board[to_index(1, c)] = make_piece(PAWN, WHITE);
-            board[to_index(6, c)] = make_piece(PAWN, BLACK);
+        // init pawns
+        for (int i = 0; i < 8; ++i) {
+            pieces[i] = Piece{PAWN, WHITE, 1, i, i};
+            pieces[i + 16] = Piece{PAWN, BLACK, 6, i, i + 16};
         }
 
         // other pieces
@@ -84,80 +60,93 @@ struct Chess {
     }
 
     void setup_back_pieces(int color) {
-        int r = color == WHITE ? 0 : 7;
-        board[to_index(r,0)] = make_piece(ROOK,     color);
-        board[to_index(r,1)] = make_piece(KNIGHT,   color);
-        board[to_index(r,2)] = make_piece(BISHOP,   color);
-        board[to_index(r,3)] = make_piece(QUEEN,    color);
-        board[to_index(r,4)] = make_piece(KING,     color);
-        board[to_index(r,5)] = make_piece(BISHOP,   color);
-        board[to_index(r,6)] = make_piece(KNIGHT,   color);
-        board[to_index(r,7)] = make_piece(ROOK,     color);
+        int off = color == WHITE ? 0 : 16;
+        int row = color == WHITE ? 0 : 7;
+        pieces[off + 8]     = Piece{ ROOK,   color, row, 0, off + 8 };
+        pieces[off + 9]     = Piece{ KNIGHT, color, row, 1, off + 9 };
+        pieces[off + 10]    = Piece{ BISHOP, color, row, 2, off + 10 };
+        pieces[off + 11]    = Piece{ QUEEN,  color, row, 3, off + 11 };
+        pieces[off + 12]    = Piece{ KING,   color, row, 4, off + 12 };
+        pieces[off + 13]    = Piece{ BISHOP, color, row, 5, off + 13 };
+        pieces[off + 14]    = Piece{ KNIGHT, color, row, 6, off + 14 };
+        pieces[off + 15]    = Piece{ ROOK,   color, row, 7, off + 15 };
+    }
+
+    void to_board(const Piece **board) const {
+        for (int i = 0; i < 32; ++i) if (!pieces[i].taken) board[to_index(pieces[i].r, pieces[i].c)] = &pieces[i];
+    }
+
+    void to_board(Piece **board) {
+        for (int i = 0; i < 32; ++i) if (!pieces[i].taken) board[to_index(pieces[i].r, pieces[i].c)] = &pieces[i];
     }
 
     Array<Move> legal_moves() const {
         Array<Move> result {};
-        for (int r = 0; r < 8; ++r) {
-            for (int c = 0; c < 8; ++c) {
-                const Square *square = &board[to_index(r,c)];
-                if (square->is_empty) continue;
-                if (square->color != turn) continue;
+
+        const Piece *board[64] {};
+        to_board(board);
+
+        for (int i = 0; i < 32; ++i) {
+            const Piece &piece = pieces[i];
+            if (piece.taken) continue;
+            if (piece.color != turn) continue;
+            
+            switch (piece.type) {
                 
-                switch (square->type) {
-                    
-                    case PAWN: {
-                        // normal forward step
-                        int steps_forward = (r == 1 && square->color == WHITE || r == 6 && square->color == BLACK) ? 2 : 1;
-                        int step_dir = square->color == WHITE ? 1 : -1;
-                        for (int step = 0; step < steps_forward; ++step) {
-                            int next_row = r + (step+1) * step_dir;
-                            if (!board[to_index(next_row, c)].is_empty) break; // break to prevent pawn teleporting through blocking pieces
+                case PAWN: {
+                    // normal forward step
+                    int steps_forward = (piece.r == 1 && piece.color == WHITE || piece.r == 6 && piece.color == BLACK) ? 2 : 1;
+                    int step_dir = piece.color == WHITE ? 1 : -1;
+                    for (int step = 0; step < steps_forward; ++step) {
+                        int next_row = piece.r + (step+1) * step_dir;
+                        if (board[to_index(next_row, piece.c)]) break; // break to prevent pawn teleporting through blocking pieces
+                        Move move {};
+                        move.piece = i;
+                        move.dest_r = next_row;
+                        move.dest_c = piece.c;
+                        if (!does_move_cause_self_check(move))
+                            result.push(move);
+                        // TODO: add pawn promotion here
+                    }
+
+                    // taking
+                    for (int attack_c = -1; attack_c <= 1; ++attack_c) {
+                        if (attack_c == 0) continue;
+                        int attack_r = piece.r + step_dir;
+                        const Piece *attacked_piece = board[to_index(attack_r, attack_c)];
+                        if (attacked_piece) {
                             Move move {};
-                            move.remove_r = r;
-                            move.remove_c = c;
-                            move.place_r = next_row;
-                            move.place_c = c;
-                            move.piece = PAWN;
-                            move.color = square->color;
+                            move.piece = i;
+                            move.dest_r = attack_r;
+                            move.dest_c = attack_c;
+                            move.taken_piece = attacked_piece->index;
                             if (!does_move_cause_self_check(move))
                                 result.push(move);
-                            // TODO: add pawn promotion here
                         }
+                    }
+                } break;
 
-                        // taking
-                        for (int attack_c = -1; attack_c <= 1; ++attack_c) {
-                            if (attack_c == 0) continue;
-                            int attack_r = r + step_dir;
-                            const Square *attack_square = get_square(attack_r, attack_c);
-                            if (attack_square && !attack_square->is_empty) {
-                                if (attack_square->color != square->color) {
-                                    Move move {};
-                                    move.remove_r = r;
-                                    move.remove_c = c;
-                                    move.place_r = attack_r;
-                                    move.place_c = attack_c;
-                                    move.piece = PAWN;
-                                    move.color = square->color;
-                                    if (!does_move_cause_self_check(move))
-                                        result.push(move);
-                                }
-                            }
-                        }
-
-                        // TODO: maybe in future handle stinky en-passant moves
-
-                    } break;
-
-                    default: fprintf(stderr, "legal_moves: unhandled piece type\n"); break;
-                }
+                default: break;
             }
         }
+
         return result;
     }
 
     Chess next_state(const Move &move) const {
-        Chess next {};
-        // TODO
+        Chess next = *this;
+
+        next.turn = turn == WHITE ? BLACK : WHITE;
+
+        next.pieces[move.piece].r = move.dest_r;
+        next.pieces[move.piece].c = move.dest_c;
+
+        if (move.taken_piece != -1) {
+            next.pieces[move.taken_piece].taken = true;
+            next.pieces[move.taken_piece].r = -1;
+            next.pieces[move.taken_piece].c = -1;
+        }
+        
         return next;
     }
 
@@ -166,12 +155,35 @@ struct Chess {
         return false;
     }
 
+    char piece_to_char(const Piece &piece) const {        
+        char result = '?';
+        switch (piece.type) {
+            case PAWN:      result = 'P'; break;
+            case ROOK:      result = 'R'; break;
+            case KNIGHT:    result = 'N'; break;
+            case BISHOP:    result = 'B'; break;
+            case QUEEN:     result = 'Q'; break;
+            case KING:      result = 'K'; break;
+            default: fprintf(stderr, "square_to_char: invalid chess piece"); return '?';
+        }
+    
+        if (piece.color == BLACK) result += ('a' - 'A');
+    
+        return result;
+    }
+
     void draw() const {
+        const Piece *board[64] {};
+        to_board(board);
+
         printf("============\n");
         for (int r = 7; r >= 0; --r) {
             printf("%d  ", r + 1);
             for (int c = 0; c < 8; ++c) {
-                printf("%c", square_to_char(board[to_index(r, c)]));
+                if (!board[to_index(r,c)])
+                    printf(".");
+                else
+                    printf("%c", piece_to_char(*board[to_index(r, c)]));
             }
             printf("\n");
         }
@@ -183,12 +195,12 @@ struct Chess {
         printf("\n");
     }
 
-    const Square *get_square(int row, int col) const {
-        if (row < 0 || row >= 8 || col < 0 || col >= 8) {
-            return nullptr;
-        }
-        return &board[to_index(row, col)];
-    }
+    // const Square *get_square(int row, int col) const {
+    //     if (row < 0 || row >= 8 || col < 0 || col >= 8) {
+    //         return nullptr;
+    //     }
+    //     return &board[to_index(row, col)];
+    // }
 
     int to_index(int row, int col) const {
         if (row < 0 || row >= 8 || col < 0 || col >= 8) {
@@ -209,5 +221,12 @@ struct Minimax_Result {
 int main() {
     printf("Hello there\n");
     Chess chess {};
+    chess.draw();
+
+    Move move {};
+    move.piece = 0;
+    move.dest_c = 0;
+    move.dest_r = 3;
+    chess = chess.next_state(move);
     chess.draw();
 }
