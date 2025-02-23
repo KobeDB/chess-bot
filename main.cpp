@@ -18,6 +18,7 @@ enum Piece_Type {
 struct Square {
     Piece_Type type {};
     int color {};
+    bool has_moved {};
     bool is_empty = true;
 };
 
@@ -26,6 +27,7 @@ Square make_piece(Piece_Type type, int color) {
     result.type = type;
     result.color = color;
     result.is_empty = false;
+    result.has_moved = false;
     return result;
 }
 
@@ -49,10 +51,13 @@ char square_to_char(const Square &square) {
 }
 
 struct Move {
-    int piece_row;
-    int piece_col;
-    int dest_row;
-    int dest_col;
+    int remove_r;
+    int remove_c;
+    int place_r;
+    int place_c;
+    Piece_Type piece;
+    int color;
+    bool is_castling = false;
 };
 
 struct Chess {
@@ -96,21 +101,51 @@ struct Chess {
             for (int c = 0; c < 8; ++c) {
                 const Square *square = &board[to_index(r,c)];
                 if (square->is_empty) continue;
+                if (square->color != turn) continue;
                 
                 switch (square->type) {
                     
                     case PAWN: {
+                        // normal forward step
                         int steps_forward = (r == 1 && square->color == WHITE || r == 6 && square->color == BLACK) ? 2 : 1;
                         int step_dir = square->color == WHITE ? 1 : -1;
                         for (int step = 0; step < steps_forward; ++step) {
                             int next_row = r + (step+1) * step_dir;
                             if (!board[to_index(next_row, c)].is_empty) break; // break to prevent pawn teleporting through blocking pieces
                             Move move {};
-                            move.piece_row = r;
-                            move.piece_col = c;
-                            move.dest_row = next_row;
-                            move.dest_col = c;
+                            move.remove_r = r;
+                            move.remove_c = c;
+                            move.place_r = next_row;
+                            move.place_c = c;
+                            move.piece = PAWN;
+                            move.color = square->color;
+                            if (!does_move_cause_self_check(move))
+                                result.push(move);
+                            // TODO: add pawn promotion here
                         }
+
+                        // taking
+                        for (int attack_c = -1; attack_c <= 1; ++attack_c) {
+                            if (attack_c == 0) continue;
+                            int attack_r = r + step_dir;
+                            const Square *attack_square = get_square(attack_r, attack_c);
+                            if (attack_square && !attack_square->is_empty) {
+                                if (attack_square->color != square->color) {
+                                    Move move {};
+                                    move.remove_r = r;
+                                    move.remove_c = c;
+                                    move.place_r = attack_r;
+                                    move.place_c = attack_c;
+                                    move.piece = PAWN;
+                                    move.color = square->color;
+                                    if (!does_move_cause_self_check(move))
+                                        result.push(move);
+                                }
+                            }
+                        }
+
+                        // TODO: maybe in future handle stinky en-passant moves
+
                     } break;
 
                     default: fprintf(stderr, "legal_moves: unhandled piece type\n"); break;
@@ -118,6 +153,17 @@ struct Chess {
             }
         }
         return result;
+    }
+
+    Chess next_state(const Move &move) const {
+        Chess next {};
+        // TODO
+        return next;
+    }
+
+    bool does_move_cause_self_check(const Move &move) const {
+        // TODO
+        return false;
     }
 
     void draw() const {
@@ -135,6 +181,13 @@ struct Chess {
             printf("%c", 'a' + c);
         }
         printf("\n");
+    }
+
+    const Square *get_square(int row, int col) const {
+        if (row < 0 || row >= 8 || col < 0 || col >= 8) {
+            return nullptr;
+        }
+        return &board[to_index(row, col)];
     }
 
     int to_index(int row, int col) const {
