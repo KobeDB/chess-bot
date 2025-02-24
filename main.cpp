@@ -367,6 +367,32 @@ struct Chess {
         return next;
     }
 
+    bool is_check() const {
+        const Piece *king {};
+        for (int i = 0; i < 32; ++i) if (pieces[i].type == KING && pieces[i].color == turn) king = &pieces[i];
+        assert(king);
+        
+        // "move" king to the same position it is already at
+        Move move {};
+        move.piece = king->index;
+        move.dest_r = king->r;
+        move.dest_c = king->c;
+
+        return does_move_cause_self_check(move);
+    }
+
+    bool is_check_mate() const {
+        auto moves = legal_moves();
+        defer (moves.destroy());
+        return is_check() && moves.size() == 0;
+    }
+
+    bool is_stalemate() const {
+        auto moves = legal_moves();
+        defer (moves.destroy());
+        return !is_check() && moves.size() == 0;
+    }
+
     bool does_move_cause_self_check(const Move &move) const {
         Chess simulated_move_state = next_state(move);
 
@@ -437,12 +463,74 @@ struct Chess {
     }
 };
 
-
+float evaluate_board(const Chess &chess) {
+    float value = 0.0f;
+    for (int i = 0; i < 32; ++i) {
+        const Piece &piece = chess.pieces[i];
+        if (!piece.taken) {
+            float piece_value = 0.0f;
+            switch (piece.type) {
+                case PAWN: piece_value = 1.0f; break;
+                case KNIGHT: piece_value = 5.0f; break;
+                case ROOK: piece_value = 10.0f; break;
+                case BISHOP: piece_value = 10.0f; break;
+                case QUEEN: piece_value = 90.0f; break;
+                case KING: piece_value = 100.0f; break; // TODO: this is probably stupid, fix it soon
+            }
+            if (piece.color == WHITE)
+                value += piece_value;
+            else
+                value -= piece_value;
+        }
+    }
+    return value;
+}
 
 struct Minimax_Result {
     Move best_move;
-    int value;
+    float value;
 };
+
+Minimax_Result minimax(const Chess &chess, int depth, int max_depth) {
+    if (chess.is_check_mate()) {
+        float value = chess.turn == WHITE ? -10000.0f : 10000.0f;
+        return {{}, value};
+    }
+
+    if (chess.is_stalemate()) {
+        return {{}, 0};
+    }
+
+    if (depth >= max_depth) {
+        return {{}, evaluate_board(chess)};
+    }
+
+    Move best_move {};
+    float best_value = chess.turn == WHITE ? -99999.0f : 99999.0f;
+
+    auto moves = chess.legal_moves();
+    defer (moves.destroy());
+
+    for (int i = 0; i < moves.size(); ++i) {
+        const Move &move = moves[i];
+        Minimax_Result opponent_move = minimax(chess.next_state(move), depth+1, max_depth);
+
+        if (chess.turn == WHITE) {
+            if (opponent_move.value > best_value) {
+                best_value = opponent_move.value;
+                best_move = move;
+            }
+        }
+        else {
+            if (opponent_move.value < best_value) {
+                best_value = opponent_move.value;
+                best_move = move;
+            }
+        }
+    }
+
+    return {best_move, best_value};
+}
 
 void print_legal_moves(const Chess &chess, const Array<Move> &legal_moves) {
     printf("Legal moves:\n");   
@@ -505,6 +593,9 @@ int main() {
             if (!user_move_ok) printf("That's an illegal move. Try Again...\n");
             else chess = chess.next_state(user_move);
         }
+        chess.draw();
+        Minimax_Result cpu_move = minimax(chess, 0, 3);
+        chess = chess.next_state(cpu_move.best_move);
         chess.draw();
     }
 
