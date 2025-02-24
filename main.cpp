@@ -180,13 +180,16 @@ struct Chess {
                             // check if every square between this rook and the king is empty
                             // + check if neighboring squares near king are non-threatened
                             bool castling_allowed = true;
+                            
+                            if (is_check()) castling_allowed = false;
+
                             if (piece.c == 0) {
                                 for (int c = 1; c < 4; ++c) if (board[to_index(piece.r, c)]) castling_allowed = false;
                                 Move move {};
                                 move.piece = piece_at_king_pos->index;
                                 move.dest_r = piece_at_king_pos->r;
                                 move.dest_c = 3;
-                                if (does_move_cause_self_check(move)) castling_allowed = false;
+                                if (castling_allowed && does_move_cause_self_check(move)) castling_allowed = false;
                             }
                             else {
                                 // => piece.c == 7
@@ -195,7 +198,7 @@ struct Chess {
                                 move.piece = piece_at_king_pos->index;
                                 move.dest_r = piece_at_king_pos->r;
                                 move.dest_c = 5;
-                                if (does_move_cause_self_check(move)) castling_allowed = false;
+                                if (castling_allowed && does_move_cause_self_check(move)) castling_allowed = false;
                             }
 
                             if (castling_allowed) {
@@ -403,7 +406,7 @@ struct Chess {
         int first_enemy_piece_index = turn == WHITE ? 16 : 0;
         int opl_enemy_piece_index = turn == WHITE ? 32 : 16;
         for (int i = first_enemy_piece_index; i < opl_enemy_piece_index; ++i) {
-            const Piece &piece = pieces[i];
+            const Piece &piece = simulated_move_state.pieces[i];
             if (piece.taken) continue;
             switch(piece.type) {
                 case PAWN: {
@@ -523,7 +526,7 @@ struct Chess {
     //     return false;
     // }
 
-    char piece_to_char(const Piece &piece) const {        
+    static char piece_to_char(const Piece &piece) {        
         char result = '?';
         switch (piece.type) {
             case PAWN:      result = 'P'; break;
@@ -606,17 +609,17 @@ struct Minimax_Result {
 
 int minimax_calls = 0;
 
-float minimax(const Chess &chess, int depth, int max_depth, Move *best_move);
+float minimax(const Chess &chess, int depth, int max_depth, Move *best_move, float alpha, float beta);
 
 Minimax_Result minimax(const Chess &chess) {
     minimax_calls = 0;
 
     Move best_move {};
-    float value = minimax(chess, 0, 3, &best_move);
+    float value = minimax(chess, 0, 5, &best_move, -999999.0f, 999999.0f);
     return {best_move, value};
 }
 
-float minimax(const Chess &chess, int depth, int max_depth, Move *best_move) {
+float minimax(const Chess &chess, int depth, int max_depth, Move *best_move, float alpha, float beta) {
     ++minimax_calls;
     if ((minimax_calls % 1000) == 0) printf("nodes visited: %d\n", minimax_calls);
 
@@ -640,19 +643,27 @@ float minimax(const Chess &chess, int depth, int max_depth, Move *best_move) {
 
     for (int i = 0; i < moves.size(); ++i) {
         const Move &move = moves[i];
-        float child_value = minimax(chess.next_state(move), depth+1, max_depth, nullptr);
+        float child_value = minimax(chess.next_state(move), depth+1, max_depth, nullptr, alpha, beta);
 
         if (chess.turn == WHITE) {
             if (child_value > best_value) {
                 best_value = child_value;
                 if (best_move) *best_move = move;
             }
+            if (best_value > alpha) {
+                alpha = best_value;
+            }
+            if (alpha >= beta) break;
         }
         else {
             if (child_value < best_value) {
                 best_value = child_value;
                 if (best_move) *best_move = move;
             }
+            if (best_value < beta) {
+                beta = best_value;
+            }
+            if (beta <= alpha) break;
         }
     }
 
@@ -696,16 +707,48 @@ Move get_user_move(Chess &chess, bool &move_ok) {
     printf("user moved: %c to (%d, %d)\n", piece, r, c);
 
     // find user's move in list of legal moves
+    int ambiguous_moves[8] {};
+    int ambiguous_moves_count = 0;
+
     for (int i = 0; i < legal_moves.size(); ++i) {
         const Move &move = legal_moves[i];
         if (move.dest_r == r && move.dest_c == c && chess.piece_to_char(chess.pieces[move.piece]) == piece) {
-            move_ok = true;
-            return move;
+            ambiguous_moves[ambiguous_moves_count] = i;
+            ++ambiguous_moves_count;
         }
     }
 
-    move_ok = false;
-    return {};
+    if(ambiguous_moves_count < 1) {
+        move_ok = false;
+        return {};
+    }
+    else if (ambiguous_moves_count == 1) {
+        move_ok = true;
+        return legal_moves[ambiguous_moves[0]];
+    }
+    else {
+        move_ok = true;
+        printf("multiple possible pieces: \n");
+        for (int i = 0; i < ambiguous_moves_count; ++i) {
+            const Move &move = legal_moves[ambiguous_moves[i]];
+            const Piece &piece = chess.pieces[move.piece];
+            char col_char = piece.c + 'a';
+            printf("%d: src=%c%d\n", i, col_char, piece.r+1);
+        }
+        printf("Enter choice: ");
+        int chosen_move = 0;
+        scanf(" %d", &chosen_move);
+        if (chosen_move < 0 || chosen_move >= ambiguous_moves_count) chosen_move = 0;
+        printf("Chosen %d.\n", chosen_move);
+        return legal_moves[ambiguous_moves[chosen_move]];
+    }
+}
+
+void print_move(const Move &move, const Chess &chess) {
+    printf("move: ");
+    char piece_char = Chess::piece_to_char(chess.pieces[move.piece]);
+    char col_char = move.dest_c + 'a';
+    printf("move: %c to %c%d\n", piece_char, col_char, move.dest_r + 1);
 }
 
 int main() {
@@ -723,6 +766,7 @@ int main() {
         chess.draw();
         Minimax_Result cpu_move = minimax(chess);
         chess = chess.next_state(cpu_move.best_move);
+        print_move(cpu_move.best_move, chess);
         chess.draw();
     }
 
