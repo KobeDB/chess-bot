@@ -186,7 +186,7 @@ struct Chess {
                                 move.piece = piece_at_king_pos->index;
                                 move.dest_r = piece_at_king_pos->r;
                                 move.dest_c = 3;
-                                if (does_move_cause_self_check(move)) castling_allowed = false;
+                                if (castling_allowed && does_move_cause_self_check(move)) castling_allowed = false;
                             }
                             else {
                                 // => piece.c == 7
@@ -195,7 +195,7 @@ struct Chess {
                                 move.piece = piece_at_king_pos->index;
                                 move.dest_r = piece_at_king_pos->r;
                                 move.dest_c = 5;
-                                if (does_move_cause_self_check(move)) castling_allowed = false;
+                                if (castling_allowed && does_move_cause_self_check(move)) castling_allowed = false;
                             }
 
                             if (castling_allowed) {
@@ -491,7 +491,12 @@ struct Minimax_Result {
     float value;
 };
 
-Minimax_Result minimax(const Chess &chess, int depth, int max_depth) {
+int nodes_checked = 0;
+
+Minimax_Result minimax(const Chess &chess, int depth, int max_depth, float alpha, float beta) {
+    ++nodes_checked;
+    if ((nodes_checked % 1000) == 0) printf("nodes checked: %d\n", nodes_checked);
+
     if (chess.is_check_mate()) {
         float value = chess.turn == WHITE ? -10000.0f : 10000.0f;
         return {{}, value};
@@ -513,19 +518,27 @@ Minimax_Result minimax(const Chess &chess, int depth, int max_depth) {
 
     for (int i = 0; i < moves.size(); ++i) {
         const Move &move = moves[i];
-        Minimax_Result opponent_move = minimax(chess.next_state(move), depth+1, max_depth);
+        Minimax_Result opponent_move = minimax(chess.next_state(move), depth+1, max_depth, alpha, beta);
 
         if (chess.turn == WHITE) {
             if (opponent_move.value > best_value) {
                 best_value = opponent_move.value;
                 best_move = move;
             }
+            if (best_value > alpha) {
+                alpha = best_value;
+            }
+            if (alpha >= beta) break;
         }
         else {
             if (opponent_move.value < best_value) {
                 best_value = opponent_move.value;
                 best_move = move;
             }
+            if (best_value < beta) {
+                beta = best_value;
+            }
+            if (beta <= alpha) break;
         }
     }
 
@@ -582,8 +595,16 @@ Move get_user_move(Chess &chess, bool &move_ok) {
 }
 
 int main() {
-    printf("Hello there\n");
     Chess chess {};
+
+    printf("Which color do you want to play as? (w/b): ");
+    char color_char {};
+    scanf(" %c", &color_char);
+    if (color_char != 'w') {
+        Minimax_Result cpu_move = minimax(chess, 0, 5, -999999.0f, 999999.0f);
+        chess = chess.next_state(cpu_move.best_move);
+    }
+
     chess.draw();
 
     while (true) {
@@ -594,19 +615,9 @@ int main() {
             else chess = chess.next_state(user_move);
         }
         chess.draw();
-        Minimax_Result cpu_move = minimax(chess, 0, 3);
+        nodes_checked = 0;
+        Minimax_Result cpu_move = minimax(chess, 0, 5, -999999.0f, 999999.0f);
         chess = chess.next_state(cpu_move.best_move);
         chess.draw();
     }
-
-
-    Move move {};
-    move.piece = 0;
-    move.dest_c = 0;
-    move.dest_r = 5;
-    chess = chess.next_state(move);
-    chess.draw();
-
-    auto legal_moves = chess.legal_moves();
-    print_legal_moves(chess, legal_moves);
 }
