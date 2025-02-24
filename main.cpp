@@ -396,19 +396,132 @@ struct Chess {
     bool does_move_cause_self_check(const Move &move) const {
         Chess simulated_move_state = next_state(move);
 
-        auto legal_moves = simulated_move_state.legal_moves(false);
-        defer( legal_moves.destroy() );
+        const Piece *board[64] {};
+        simulated_move_state.to_board(board);
 
-        for (int i = 0; i < legal_moves.size(); ++i) {
-            const Move &legal_move = legal_moves[i];
-            const Piece &taken_piece = simulated_move_state.pieces[legal_move.taken_piece];
-            if (taken_piece.type == KING && taken_piece.color == turn) {
-                return true;
+        u64 threatened = 0;
+        int first_enemy_piece_index = turn == WHITE ? 16 : 0;
+        int opl_enemy_piece_index = turn == WHITE ? 32 : 16;
+        for (int i = first_enemy_piece_index; i < opl_enemy_piece_index; ++i) {
+            const Piece &piece = pieces[i];
+            if (piece.taken) continue;
+            switch(piece.type) {
+                case PAWN: {
+                    u64 pawn_threats = 0;
+                    if (piece.color == WHITE) {
+                        if (is_valid_pos(piece.r+1,piece.c-1)) pawn_threats |= (1ULL << to_index(piece.r+1, piece.c-1));
+                        if (is_valid_pos(piece.r+1,piece.c+1)) pawn_threats |= (1ULL << to_index(piece.r+1, piece.c+1));
+                    } else {
+                        if (is_valid_pos(piece.r-1,piece.c-1)) pawn_threats |= (1ULL << to_index(piece.r-1, piece.c-1));
+                        if (is_valid_pos(piece.r-1,piece.c+1)) pawn_threats |= (1ULL << to_index(piece.r-1, piece.c+1));
+                    }
+                    threatened |= pawn_threats;
+                } break;
+                case ROOK: {
+                    u64 threats = 0;
+                    threats |= calc_threats_dir(board, piece.r, piece.c, piece.color, -1,  0);
+                    threats |= calc_threats_dir(board, piece.r, piece.c, piece.color,  1,  0);
+                    threats |= calc_threats_dir(board, piece.r, piece.c, piece.color,  0, -1);
+                    threats |= calc_threats_dir(board, piece.r, piece.c, piece.color,  0,  1);
+                    threatened |= threats;
+                } break;
+                case BISHOP: {
+                    u64 threats = 0;
+                    threats |= calc_threats_dir(board, piece.r, piece.c, piece.color, -1,  -1);
+                    threats |= calc_threats_dir(board, piece.r, piece.c, piece.color, -1,   1);
+                    threats |= calc_threats_dir(board, piece.r, piece.c, piece.color,  1,  -1);
+                    threats |= calc_threats_dir(board, piece.r, piece.c, piece.color,  1,   1);
+                    threatened |= threats;
+                } break;
+                case QUEEN: {
+                    u64 threats = 0;
+                    threats |= calc_threats_dir(board, piece.r, piece.c, piece.color, -1,  0);
+                    threats |= calc_threats_dir(board, piece.r, piece.c, piece.color,  1,  0);
+                    threats |= calc_threats_dir(board, piece.r, piece.c, piece.color,  0, -1);
+                    threats |= calc_threats_dir(board, piece.r, piece.c, piece.color,  0,  1);
+                    threats |= calc_threats_dir(board, piece.r, piece.c, piece.color, -1,  -1);
+                    threats |= calc_threats_dir(board, piece.r, piece.c, piece.color, -1,   1);
+                    threats |= calc_threats_dir(board, piece.r, piece.c, piece.color,  1,  -1);
+                    threats |= calc_threats_dir(board, piece.r, piece.c, piece.color,  1,   1);
+                    threatened |= threats;
+                } break;
+                case KNIGHT: {
+                    u64 threats = 0;
+                    const int offsets[] = {
+                        2,  1,
+                        2, -1,
+                       -2,  1,
+                       -2, -1,
+                        1,  2,
+                        1, -2,
+                       -1,  2,
+                       -1, -2
+                   };
+
+                   for (int off_i = 0; off_i < 8; ++off_i) {
+                       int off_r = offsets[off_i * 2];
+                       int off_c = offsets[off_i * 2 + 1];
+                       int dest_r = piece.r + off_r;
+                       int dest_c = piece.c + off_c;
+                       if (is_valid_pos(dest_r, dest_c)) threats |= (1ULL << to_index(dest_r, dest_c));
+                   }
+                   threatened |= threats;
+                } break;
+                case KING: {
+                    u64 threats = 0;
+                    for (int off_r = -1; off_r <= 1; ++off_r) {
+                        for (int off_c = -1; off_c <= 1; ++off_c) {
+                            if (off_r == 0 && off_c == 0) continue;
+                            int dest_r = piece.r + off_r;
+                            int dest_c = piece.c + off_c;
+                            if (is_valid_pos(dest_r, dest_c)) threats |= (1ULL << to_index(dest_r, dest_c));
+                        }
+                    }
+                    threatened |= threats;
+                } break;
             }
         }
 
-        return false;
+        int king_index = turn == WHITE ? 12 : 12 + 16;
+        const Piece &king = simulated_move_state.pieces[king_index];
+        assert(king.type == KING);
+
+        return ( threatened & (1ULL << to_index(king.r, king.c)) ) > 0;
     }
+
+    u64 calc_threats_dir(const Piece **board, int r, int c, int piece_color, int step_r, int step_c) const {
+        u64 threats = 0;
+
+        int cur_r = r + step_r;
+        int cur_c = c + step_c;
+        while (is_valid_pos(cur_r, cur_c)) {
+            defer ( { cur_r += step_r; cur_c += step_c; } );
+            const Piece *other_piece = board[to_index(cur_r, cur_c)];
+            if (!other_piece || other_piece->color != piece_color) {
+                threats |= (1ULL << to_index(cur_r, cur_c));
+            }
+            if (other_piece) break; // break to not teleport through the piece
+        }
+
+        return threats;
+    }
+
+    // bool does_move_cause_self_check(const Move &move) const {
+    //     Chess simulated_move_state = next_state(move);
+
+    //     auto legal_moves = simulated_move_state.legal_moves(false);
+    //     defer( legal_moves.destroy() );
+
+    //     for (int i = 0; i < legal_moves.size(); ++i) {
+    //         const Move &legal_move = legal_moves[i];
+    //         const Piece &taken_piece = simulated_move_state.pieces[legal_move.taken_piece];
+    //         if (taken_piece.type == KING && taken_piece.color == turn) {
+    //             return true;
+    //         }
+    //     }
+
+    //     return false;
+    // }
 
     char piece_to_char(const Piece &piece) const {        
         char result = '?';
@@ -493,24 +606,33 @@ struct Minimax_Result {
 
 int minimax_calls = 0;
 
-Minimax_Result minimax(const Chess &chess, int depth, int max_depth) {
+float minimax(const Chess &chess, int depth, int max_depth, Move *best_move);
+
+Minimax_Result minimax(const Chess &chess) {
+    minimax_calls = 0;
+
+    Move best_move {};
+    float value = minimax(chess, 0, 3, &best_move);
+    return {best_move, value};
+}
+
+float minimax(const Chess &chess, int depth, int max_depth, Move *best_move) {
     ++minimax_calls;
     if ((minimax_calls % 1000) == 0) printf("nodes visited: %d\n", minimax_calls);
 
     if (chess.is_check_mate()) {
         float value = chess.turn == WHITE ? -10000.0f : 10000.0f;
-        return {{}, value};
+        return value;
     }
 
     if (chess.is_stalemate()) {
-        return {{}, 0};
+        return 0;
     }
 
     if (depth >= max_depth) {
-        return {{}, evaluate_board(chess)};
+        return evaluate_board(chess);
     }
 
-    Move best_move {};
     float best_value = chess.turn == WHITE ? -99999.0f : 99999.0f;
 
     auto moves = chess.legal_moves();
@@ -518,23 +640,23 @@ Minimax_Result minimax(const Chess &chess, int depth, int max_depth) {
 
     for (int i = 0; i < moves.size(); ++i) {
         const Move &move = moves[i];
-        Minimax_Result opponent_move = minimax(chess.next_state(move), depth+1, max_depth);
+        float child_value = minimax(chess.next_state(move), depth+1, max_depth, nullptr);
 
         if (chess.turn == WHITE) {
-            if (opponent_move.value > best_value) {
-                best_value = opponent_move.value;
-                best_move = move;
+            if (child_value > best_value) {
+                best_value = child_value;
+                if (best_move) *best_move = move;
             }
         }
         else {
-            if (opponent_move.value < best_value) {
-                best_value = opponent_move.value;
-                best_move = move;
+            if (child_value < best_value) {
+                best_value = child_value;
+                if (best_move) *best_move = move;
             }
         }
     }
 
-    return {best_move, best_value};
+    return best_value;
 }
 
 void print_legal_moves(const Chess &chess, const Array<Move> &legal_moves) {
@@ -599,8 +721,7 @@ int main() {
             else chess = chess.next_state(user_move);
         }
         chess.draw();
-        minimax_calls = 0;
-        Minimax_Result cpu_move = minimax(chess, 0, 3);
+        Minimax_Result cpu_move = minimax(chess);
         chess = chess.next_state(cpu_move.best_move);
         chess.draw();
     }

@@ -1,2 +1,2 @@
-cl -Zi main.cpp
-:: cl -O2 main.cpp
+:: cl -Zi main.cpp
+cl -O2 main.cpp
