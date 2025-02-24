@@ -491,7 +491,12 @@ struct Minimax_Result {
     float value;
 };
 
+int minimax_calls = 0;
+
 Minimax_Result minimax(const Chess &chess, int depth, int max_depth) {
+    ++minimax_calls;
+    if ((minimax_calls % 1000) == 0) printf("nodes visited: %d\n", minimax_calls);
+
     if (chess.is_check_mate()) {
         float value = chess.turn == WHITE ? -10000.0f : 10000.0f;
         return {{}, value};
@@ -594,6 +599,7 @@ int main() {
             else chess = chess.next_state(user_move);
         }
         chess.draw();
+        minimax_calls = 0;
         Minimax_Result cpu_move = minimax(chess, 0, 3);
         chess = chess.next_state(cpu_move.best_move);
         chess.draw();
