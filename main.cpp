@@ -171,29 +171,45 @@ struct Chess {
                     add_legal_moves_for_direction(result, i, piece.r, piece.c,  1,  0, board, check_self_check);
                     add_legal_moves_for_direction(result, i, piece.r, piece.c,  0, -1, board, check_self_check);
                     add_legal_moves_for_direction(result, i, piece.r, piece.c,  0,  1, board, check_self_check);
-                    // castling
-                    if (!piece.has_moved) {
+                    // castling, don't add castling moves if check_self_check is false as a castling move cannot capture any pieces (check_self_check is false only because we want to return threatened pieces/squares)
+                    if (!piece.has_moved && check_self_check) {
                         // search for king
-                        int search_dir = piece.c == 0 ? 1 : -1;
-                        int start_c = piece.c == 0 ? 1 : 6;
-                        for (int c = start_c; c < 8 && c >= 0; c += search_dir) {
-                            const Piece *row_piece = board[to_index(piece.r, c)];
-                            if (!row_piece) continue;
-                            if (row_piece && row_piece->type == KING && row_piece->color == piece.color && !row_piece->has_moved) {
+                        const Piece *piece_at_king_pos = board[to_index(piece.r, 4)];
+                        if (piece_at_king_pos && piece_at_king_pos->type == KING && piece_at_king_pos->color == piece.color && !piece_at_king_pos->has_moved) {
+                            // piece_at_king_pos is the king we can castle with
+                            // check if every square between this rook and the king is empty
+                            // + check if neighboring squares near king are non-threatened
+                            bool castling_allowed = true;
+                            if (piece.c == 0) {
+                                for (int c = 1; c < 4; ++c) if (board[to_index(piece.r, c)]) castling_allowed = false;
                                 Move move {};
-                                move.piece = row_piece->index;
-                                move.dest_r = row_piece->r;
-                                move.dest_c = (row_piece->c - piece.c) > 0 ? 2 : 6;
+                                move.piece = piece_at_king_pos->index;
+                                move.dest_r = piece_at_king_pos->r;
+                                move.dest_c = 3;
+                                if (does_move_cause_self_check(move)) castling_allowed = false;
+                            }
+                            else {
+                                // => piece.c == 7
+                                for (int c = 5; c < 7; ++c) if (board[to_index(piece.r, c)]) castling_allowed = false;
+                                Move move {};
+                                move.piece = piece_at_king_pos->index;
+                                move.dest_r = piece_at_king_pos->r;
+                                move.dest_c = 5;
+                                if (does_move_cause_self_check(move)) castling_allowed = false;
+                            }
+
+                            if (castling_allowed) {
+                                Move move {};
+                                move.piece = piece_at_king_pos->index;
+                                move.dest_r = piece_at_king_pos->r;
+                                move.dest_c = (piece_at_king_pos->c - piece.c) > 0 ? 2 : 6;
                                 move.is_castling = true;
                                 move.castling_rook = piece.index;
-                                if (!check_self_check || !does_move_cause_self_check(move)) {
+                                if (!does_move_cause_self_check(move)) {
                                     result.push(move);
                                 }
-                            } else {
-                                // piece is not the king or he has moved => break
-                                break;
                             }
-                        }
+                        } 
                     }
                 } break;
 
@@ -481,7 +497,6 @@ int main() {
     printf("Hello there\n");
     Chess chess {};
     chess.draw();
-    print_legal_moves(chess, chess.legal_moves());
 
     while (true) {
         bool user_move_ok = false;
