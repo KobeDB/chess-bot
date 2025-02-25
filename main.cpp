@@ -5,15 +5,6 @@
 #include "array.h"
 #include "basic.h"
 
-// enum Piece_Type {
-//     PAWN,
-//     ROOK,
-//     KNIGHT,
-//     BISHOP,
-//     QUEEN,
-//     KING
-// };
-
 #define PAWN    0
 #define ROOK    1
 #define KNIGHT  2
@@ -337,17 +328,6 @@ struct Chess {
         }
     }
 
-    // void get_taken_pieces(int *taken_pieces, int &taken_pieces_count, int color) const {
-    //     taken_pieces_count = 0;
-    //     for (int i = 0; i <32; ++i) {
-    //         const Piece &piece = pieces[i];
-    //         if (piece.taken && piece.color == color) {
-    //             taken_pieces[taken_pieces_count] = i;
-    //             ++taken_pieces_count;
-    //         }
-    //     }
-    // }
-
     Chess next_state(const Move &move) const {
         Chess next = *this;
 
@@ -566,14 +546,23 @@ struct Chess {
     }
 };
 
+int evaluations = 0;
+
 float evaluate_board(const Chess &chess) {
+    ++evaluations;
     float value = 0.0f;
     for (int i = 0; i < 32; ++i) {
         const Piece &piece = chess.pieces[i];
         if (!piece.taken) {
             float piece_value = 0.0f;
+
+            if (piece.type == PAWN) {
+                piece_value += ((float)piece.r) / 7.0f;
+                if (piece.c == 3 || piece.c == 4) piece_value += 1.0f;
+                piece_value += 1.0f;
+            }
             switch (piece.type) {
-                case PAWN: piece_value = 1.0f; break;
+                case PAWN: break;
                 case KNIGHT: piece_value = 5.0f; break;
                 case ROOK: piece_value = 10.0f; break;
                 case BISHOP: piece_value = 10.0f; break;
@@ -594,12 +583,12 @@ struct Minimax_Result {
     float value;
 };
 
-int minimax_calls = 0;
+
 
 float minimax(Array<Move> &move_arena, const Chess &chess, int depth, int max_depth, Move *best_move, float alpha, float beta);
 
 Minimax_Result minimax(Array<Move> &move_arena, const Chess &chess) {
-    minimax_calls = 0;
+    evaluations = 0;
 
     clock_t start = clock();
 
@@ -612,15 +601,15 @@ Minimax_Result minimax(Array<Move> &move_arena, const Chess &chess) {
     clock_t end = clock();
     double elapsed = ((double)(end-start))/CLOCKS_PER_SEC;
 
-    double minimax_calls_per_second = ((double)minimax_calls)/elapsed;
-    printf("Minimax calls/s: %f\n", minimax_calls_per_second);
+    double evaluations_per_second = ((double)evaluations)/elapsed;
+    printf("evaluations/s: %f\n", evaluations_per_second);
 
     return {best_move, value};
 }
 
 float minimax(Array<Move> &move_arena, const Chess &chess, int depth, int max_depth, Move *best_move, float alpha, float beta) {
-    ++minimax_calls;
-    if ((minimax_calls % 10000) == 0) printf("nodes visited: %d\n", minimax_calls);
+    
+    if ((evaluations % 10000) == 0) printf("nodes visited: %d\n", evaluations);
 
     if (chess.is_check_mate(move_arena)) {
         float value = chess.turn == WHITE ? -10000.0f : 10000.0f;
