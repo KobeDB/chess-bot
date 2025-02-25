@@ -86,9 +86,33 @@ struct Chess {
         for (int i = 0; i < 32; ++i) if (!pieces[i].taken) board[to_index(pieces[i].r, pieces[i].c)] = &pieces[i];
     }
 
-    Array<Move> legal_moves(bool check_self_check = true) const {
-        Array<Move> result {};
-        result.reserve(40);
+    void post_process_pawn_move_and_push_onto_move_arena(Move &move, int pawn_color, Array<Move> &move_arena) const {
+        if (move.dest_r == 7 && pawn_color == WHITE || move.dest_r == 0 && pawn_color == BLACK) {
+            // The pawn must promote => push only promotion moves in result
+            move.is_promotion = true;
+            move.promotion_type = QUEEN;
+            move_arena.push(move);
+            move.promotion_type = ROOK;
+            move_arena.push(move);
+            move.promotion_type = KNIGHT;
+            move_arena.push(move);
+            move.promotion_type = BISHOP;
+            move_arena.push(move);
+        } else {
+            move_arena.push(move);
+        }
+    }
+
+    struct Legal_Moves_Result {
+        size_t first;
+        size_t opl;
+    };
+
+    Legal_Moves_Result legal_moves(Array<Move> &move_arena) const {
+        Legal_Moves_Result result {};
+        
+        result.first = move_arena.size();
+        defer ( result.opl = move_arena.size() );
 
         const Piece *board[64] {};
         to_board(board);
@@ -101,9 +125,6 @@ struct Chess {
             switch (piece.type) {
                 
                 case PAWN: {
-                    Array<Move> raw_moves {};
-                    defer( raw_moves.destroy() );
-
                     // normal forward step
                     int steps_forward = (piece.r == 1 && piece.color == WHITE || piece.r == 6 && piece.color == BLACK) ? 2 : 1;
                     int step_dir = piece.color == WHITE ? 1 : -1;
@@ -116,7 +137,9 @@ struct Chess {
                         move.dest_r = next_row;
                         move.dest_c = piece.c;
 
-                        raw_moves.push(move);
+                        if (does_move_cause_self_check(move)) continue;
+
+                        post_process_pawn_move_and_push_onto_move_arena(move, piece.color, move_arena);
                     }
 
                     // capturing
@@ -137,44 +160,22 @@ struct Chess {
                             move.dest_c = attack_c;
                             move.taken_piece = attacked_piece->index;
 
-                            raw_moves.push(move);
+                            if (does_move_cause_self_check(move)) continue;
+
+                            post_process_pawn_move_and_push_onto_move_arena(move, piece.color, move_arena);
                         }
                     }
 
                     // TODO: en-passant moves
-
-                    // check for promotions
-                    for (int raw_move_i = 0; raw_move_i < raw_moves.size(); ++raw_move_i) {
-                        Move &raw_move = raw_moves[raw_move_i];
-
-                        if (check_self_check && does_move_cause_self_check(raw_move)) continue;
-                        
-                        if (raw_move.dest_r == 7 && piece.color == WHITE || raw_move.dest_r == 0 && piece.color == BLACK) {
-                            // The pawn must promote => push only promotion moves in result
-
-                            raw_move.is_promotion = true;
-                            
-                            raw_move.promotion_type = QUEEN;
-                            result.push(raw_move);
-                            raw_move.promotion_type = ROOK;
-                            result.push(raw_move);
-                            raw_move.promotion_type = KNIGHT;
-                            result.push(raw_move);
-                            raw_move.promotion_type = BISHOP;
-                            result.push(raw_move);
-                        } else {
-                            result.push(raw_move);
-                        }
-                    }
                 } break;
 
                 case ROOK: {
-                    add_legal_moves_for_direction(result, i, piece.r, piece.c, -1,  0, board, check_self_check);
-                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  1,  0, board, check_self_check);
-                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  0, -1, board, check_self_check);
-                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  0,  1, board, check_self_check);
+                    add_legal_moves_for_direction(move_arena, i, piece.r, piece.c, -1,  0, board);
+                    add_legal_moves_for_direction(move_arena, i, piece.r, piece.c,  1,  0, board);
+                    add_legal_moves_for_direction(move_arena, i, piece.r, piece.c,  0, -1, board);
+                    add_legal_moves_for_direction(move_arena, i, piece.r, piece.c,  0,  1, board);
                     // castling, don't add castling moves if check_self_check is false as a castling move cannot capture any pieces (check_self_check is false only because we want to return threatened pieces/squares)
-                    if (!piece.has_moved && check_self_check) {
+                    if (!piece.has_moved) {
                         // search for king
                         const Piece *piece_at_king_pos = board[to_index(piece.r, 4)];
                         if (piece_at_king_pos && piece_at_king_pos->type == KING && piece_at_king_pos->color == piece.color && !piece_at_king_pos->has_moved) {
@@ -211,7 +212,7 @@ struct Chess {
                                 move.is_castling = true;
                                 move.castling_rook = piece.index;
                                 if (!does_move_cause_self_check(move)) {
-                                    result.push(move);
+                                    move_arena.push(move);
                                 }
                             }
                         } 
@@ -219,22 +220,22 @@ struct Chess {
                 } break;
 
                 case BISHOP: {
-                    add_legal_moves_for_direction(result, i, piece.r, piece.c, -1, -1, board, check_self_check);
-                    add_legal_moves_for_direction(result, i, piece.r, piece.c, -1,  1, board, check_self_check);
-                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  1, -1, board, check_self_check);
-                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  1,  1, board, check_self_check);
+                    add_legal_moves_for_direction(move_arena, i, piece.r, piece.c, -1, -1, board);
+                    add_legal_moves_for_direction(move_arena, i, piece.r, piece.c, -1,  1, board);
+                    add_legal_moves_for_direction(move_arena, i, piece.r, piece.c,  1, -1, board);
+                    add_legal_moves_for_direction(move_arena, i, piece.r, piece.c,  1,  1, board);
                 } break;
 
                 case QUEEN: {
-                    add_legal_moves_for_direction(result, i, piece.r, piece.c, -1,  0, board, check_self_check);
-                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  1,  0, board, check_self_check);
-                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  0, -1, board, check_self_check);
-                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  0,  1, board, check_self_check);
+                    add_legal_moves_for_direction(move_arena, i, piece.r, piece.c, -1,  0, board);
+                    add_legal_moves_for_direction(move_arena, i, piece.r, piece.c,  1,  0, board);
+                    add_legal_moves_for_direction(move_arena, i, piece.r, piece.c,  0, -1, board);
+                    add_legal_moves_for_direction(move_arena, i, piece.r, piece.c,  0,  1, board);
 
-                    add_legal_moves_for_direction(result, i, piece.r, piece.c, -1, -1, board, check_self_check);
-                    add_legal_moves_for_direction(result, i, piece.r, piece.c, -1,  1, board, check_self_check);
-                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  1, -1, board, check_self_check);
-                    add_legal_moves_for_direction(result, i, piece.r, piece.c,  1,  1, board, check_self_check);
+                    add_legal_moves_for_direction(move_arena, i, piece.r, piece.c, -1, -1, board);
+                    add_legal_moves_for_direction(move_arena, i, piece.r, piece.c, -1,  1, board);
+                    add_legal_moves_for_direction(move_arena, i, piece.r, piece.c,  1, -1, board);
+                    add_legal_moves_for_direction(move_arena, i, piece.r, piece.c,  1,  1, board);
                 } break;
 
                 case KNIGHT: {
@@ -254,7 +255,7 @@ struct Chess {
                         int off_c = offsets[off_i * 2 + 1];
                         int dest_r = piece.r + off_r;
                         int dest_c = piece.c + off_c;
-                        maybe_add_move(result, piece, dest_r, dest_c, board, check_self_check);
+                        maybe_add_move(move_arena, piece, dest_r, dest_c, board);
                     }
                     
                 } break;
@@ -265,7 +266,7 @@ struct Chess {
                             if (off_r == 0 && off_c == 0) continue;
                             int dest_r = piece.r + off_r;
                             int dest_c = piece.c + off_c;
-                            maybe_add_move(result, piece, dest_r, dest_c, board, check_self_check);
+                            maybe_add_move(move_arena, piece, dest_r, dest_c, board);
                         }
                     }
                 } break;
@@ -277,7 +278,7 @@ struct Chess {
         return result;
     }
 
-    bool maybe_add_move(Array<Move> &legal_moves, const Piece &piece, int dest_r, int dest_c, const Piece **board, bool check_self_check) const {
+    bool maybe_add_move(Array<Move> &move_arena, const Piece &piece, int dest_r, int dest_c, const Piece **board) const {
         if (is_valid_pos(dest_r, dest_c)) {
             const Piece *other_piece = board[to_index(dest_r, dest_c)];
 
@@ -292,15 +293,15 @@ struct Chess {
                 move.taken_piece = other_piece->index;
             }
 
-            if (!check_self_check || !does_move_cause_self_check(move)) {
-                legal_moves.push(move);
+            if (!does_move_cause_self_check(move)) {
+                move_arena.push(move);
                 return true;
             }
         }
         return false;
     }
 
-    void add_legal_moves_for_direction(Array<Move> &legal_moves, int piece_i, int r, int c, int step_r, int step_c, const Piece **board, bool check_self_check) const {
+    void add_legal_moves_for_direction(Array<Move> &move_arena, int piece_i, int r, int c, int step_r, int step_c, const Piece **board) const {
         int cur_r = r + step_r;
         int cur_c = c + step_c;
         while (is_valid_pos(cur_r, cur_c)) {
@@ -313,8 +314,8 @@ struct Chess {
                 move.dest_c = cur_c;
                 move.taken_piece = other_piece->index;
 
-                if (!check_self_check || !does_move_cause_self_check(move)) {
-                    legal_moves.push(move);
+                if (!does_move_cause_self_check(move)) {
+                    move_arena.push(move);
                 }
                 
                 break; // Break to not teleport through the piece
@@ -327,8 +328,8 @@ struct Chess {
             move.piece = piece_i;
             move.dest_r = cur_r;
             move.dest_c = cur_c;
-            if (!check_self_check || !does_move_cause_self_check(move)) {
-                legal_moves.push(move);
+            if (!does_move_cause_self_check(move)) {
+                move_arena.push(move);
             }
         }
     }
@@ -386,16 +387,14 @@ struct Chess {
         return does_move_cause_self_check(move);
     }
 
-    bool is_check_mate() const {
-        auto moves = legal_moves();
-        defer (moves.destroy());
-        return is_check() && moves.size() == 0;
+    bool is_check_mate(Array<Move> &move_arena) const {
+        auto moves = legal_moves(move_arena);
+        return is_check() && moves.first == moves.opl;
     }
 
-    bool is_stalemate() const {
-        auto moves = legal_moves();
-        defer (moves.destroy());
-        return !is_check() && moves.size() == 0;
+    bool is_stalemate(Array<Move> &move_arena) const {
+        auto moves = legal_moves(move_arena);
+        return !is_check() && moves.first == moves.opl;
     }
 
     bool does_move_cause_self_check(const Move &move) const {
@@ -511,23 +510,6 @@ struct Chess {
         return threats;
     }
 
-    // bool does_move_cause_self_check(const Move &move) const {
-    //     Chess simulated_move_state = next_state(move);
-
-    //     auto legal_moves = simulated_move_state.legal_moves(false);
-    //     defer( legal_moves.destroy() );
-
-    //     for (int i = 0; i < legal_moves.size(); ++i) {
-    //         const Move &legal_move = legal_moves[i];
-    //         const Piece &taken_piece = simulated_move_state.pieces[legal_move.taken_piece];
-    //         if (taken_piece.type == KING && taken_piece.color == turn) {
-    //             return true;
-    //         }
-    //     }
-
-    //     return false;
-    // }
-
     static char piece_to_char(const Piece &piece) {        
         char result = '?';
         switch (piece.type) {
@@ -611,15 +593,17 @@ struct Minimax_Result {
 
 int minimax_calls = 0;
 
-float minimax(const Chess &chess, int depth, int max_depth, Move *best_move, float alpha, float beta);
+float minimax(Array<Move> &move_arena, const Chess &chess, int depth, int max_depth, Move *best_move, float alpha, float beta);
 
-Minimax_Result minimax(const Chess &chess) {
+Minimax_Result minimax(Array<Move> &move_arena, const Chess &chess) {
     minimax_calls = 0;
 
     clock_t start = clock();
 
+    move_arena.clear();
+
     Move best_move {};
-    float value = minimax(chess, 0, 5, &best_move, -999999.0f, 999999.0f);
+    float value = minimax(move_arena, chess, 0, 5, &best_move, -999999.0f, 999999.0f);
 
     clock_t end = clock();
     double elapsed = ((double)(end-start))/CLOCKS_PER_SEC;
@@ -630,16 +614,16 @@ Minimax_Result minimax(const Chess &chess) {
     return {best_move, value};
 }
 
-float minimax(const Chess &chess, int depth, int max_depth, Move *best_move, float alpha, float beta) {
+float minimax(Array<Move> &move_arena, const Chess &chess, int depth, int max_depth, Move *best_move, float alpha, float beta) {
     ++minimax_calls;
     if ((minimax_calls % 10000) == 0) printf("nodes visited: %d\n", minimax_calls);
 
-    if (chess.is_check_mate()) {
+    if (chess.is_check_mate(move_arena)) {
         float value = chess.turn == WHITE ? -10000.0f : 10000.0f;
         return value;
     }
 
-    if (chess.is_stalemate()) {
+    if (chess.is_stalemate(move_arena)) {
         return 0;
     }
 
@@ -649,12 +633,11 @@ float minimax(const Chess &chess, int depth, int max_depth, Move *best_move, flo
 
     float best_value = chess.turn == WHITE ? -99999.0f : 99999.0f;
 
-    auto moves = chess.legal_moves();
-    defer (moves.destroy());
+    auto moves = chess.legal_moves(move_arena);
 
-    for (int i = 0; i < moves.size(); ++i) {
-        const Move &move = moves[i];
-        float child_value = minimax(chess.next_state(move), depth+1, max_depth, nullptr, alpha, beta);
+    for (size_t i = moves.first; i < moves.opl; ++i) {
+        const Move &move = move_arena[i];
+        float child_value = minimax(move_arena, chess.next_state(move), depth+1, max_depth, nullptr, alpha, beta);
 
         if (chess.turn == WHITE) {
             if (child_value > best_value) {
@@ -681,20 +664,20 @@ float minimax(const Chess &chess, int depth, int max_depth, Move *best_move, flo
     return best_value;
 }
 
-void print_legal_moves(const Chess &chess, const Array<Move> &legal_moves) {
+void print_legal_moves(const Chess &chess, Chess::Legal_Moves_Result legal_moves, const Array<Move> &move_arena) {
     printf("Legal moves:\n");   
-    for (int i = 0; i < legal_moves.size(); ++i) {
-        const Move &move = legal_moves[i];
+    for (size_t i = legal_moves.first; i < legal_moves.opl; ++i) {
+        const Move &move = move_arena[i];
         const Piece &piece = chess.pieces[move.piece];
         char pc = chess.piece_to_char(piece);
         printf("%c(%d) to (%d, %d)\n", pc, piece.index, move.dest_r, move.dest_c);
     }
 }
 
-Move get_user_move(Chess &chess, bool &move_ok) {
-    auto legal_moves = chess.legal_moves();
-    defer( legal_moves.destroy() );
-    print_legal_moves(chess, legal_moves);
+Move get_user_move(Array<Move> &move_arena, Chess &chess, bool &move_ok) {
+    auto legal_moves = chess.legal_moves(move_arena);
+    defer( move_arena.clear() );
+    print_legal_moves(chess, legal_moves, move_arena);
     printf("Give a move: ");
     char piece {};
     char col {};
@@ -721,8 +704,8 @@ Move get_user_move(Chess &chess, bool &move_ok) {
     int ambiguous_moves[8] {};
     int ambiguous_moves_count = 0;
 
-    for (int i = 0; i < legal_moves.size(); ++i) {
-        const Move &move = legal_moves[i];
+    for (size_t i = legal_moves.first; i < legal_moves.opl; ++i) {
+        const Move &move = move_arena[i];
         if (move.dest_r == r && move.dest_c == c && chess.piece_to_char(chess.pieces[move.piece]) == piece) {
             ambiguous_moves[ambiguous_moves_count] = i;
             ++ambiguous_moves_count;
@@ -735,13 +718,13 @@ Move get_user_move(Chess &chess, bool &move_ok) {
     }
     else if (ambiguous_moves_count == 1) {
         move_ok = true;
-        return legal_moves[ambiguous_moves[0]];
+        return move_arena[ambiguous_moves[0]];
     }
     else {
         move_ok = true;
         printf("multiple possible pieces: \n");
         for (int i = 0; i < ambiguous_moves_count; ++i) {
-            const Move &move = legal_moves[ambiguous_moves[i]];
+            const Move &move = move_arena[ambiguous_moves[i]];
             const Piece &piece = chess.pieces[move.piece];
             char col_char = piece.c + 'a';
             printf("%d: src=%c%d\n", i, col_char, piece.r+1);
@@ -751,7 +734,7 @@ Move get_user_move(Chess &chess, bool &move_ok) {
         scanf(" %d", &chosen_move);
         if (chosen_move < 0 || chosen_move >= ambiguous_moves_count) chosen_move = 0;
         printf("Chosen %d.\n", chosen_move);
-        return legal_moves[ambiguous_moves[chosen_move]];
+        return move_arena[ambiguous_moves[chosen_move]];
     }
 }
 
@@ -763,32 +746,25 @@ void print_move(const Move &move, const Chess &chess) {
 }
 
 int main() {
-    printf("Hello there\n");
+
+    Array<Move> move_arena {};
+    move_arena.reserve(100000000);
+    move_arena.lock_capacity();
+
     Chess chess {};
     chess.draw();
 
     while (true) {
         bool user_move_ok = false;
         while (!user_move_ok) {
-            Move user_move = get_user_move(chess, user_move_ok);
+            Move user_move = get_user_move(move_arena, chess, user_move_ok);
             if (!user_move_ok) printf("That's an illegal move. Try Again...\n");
             else chess = chess.next_state(user_move);
         }
         chess.draw();
-        Minimax_Result cpu_move = minimax(chess);
+        Minimax_Result cpu_move = minimax(move_arena, chess);
         chess = chess.next_state(cpu_move.best_move);
         print_move(cpu_move.best_move, chess);
         chess.draw();
     }
-
-
-    Move move {};
-    move.piece = 0;
-    move.dest_c = 0;
-    move.dest_r = 5;
-    chess = chess.next_state(move);
-    chess.draw();
-
-    auto legal_moves = chess.legal_moves();
-    print_legal_moves(chess, legal_moves);
 }
