@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "array.h"
 #include "basic.h"
@@ -87,6 +88,7 @@ struct Chess {
 
     Array<Move> legal_moves(bool check_self_check = true) const {
         Array<Move> result {};
+        result.reserve(40);
 
         const Piece *board[64] {};
         to_board(board);
@@ -614,14 +616,23 @@ float minimax(const Chess &chess, int depth, int max_depth, Move *best_move, flo
 Minimax_Result minimax(const Chess &chess) {
     minimax_calls = 0;
 
+    clock_t start = clock();
+
     Move best_move {};
     float value = minimax(chess, 0, 5, &best_move, -999999.0f, 999999.0f);
+
+    clock_t end = clock();
+    double elapsed = ((double)(end-start))/CLOCKS_PER_SEC;
+
+    double minimax_calls_per_second = ((double)minimax_calls)/elapsed;
+    printf("Minimax calls/s: %f\n", minimax_calls_per_second);
+
     return {best_move, value};
 }
 
 float minimax(const Chess &chess, int depth, int max_depth, Move *best_move, float alpha, float beta) {
     ++minimax_calls;
-    if ((minimax_calls % 1000) == 0) printf("nodes visited: %d\n", minimax_calls);
+    if ((minimax_calls % 10000) == 0) printf("nodes visited: %d\n", minimax_calls);
 
     if (chess.is_check_mate()) {
         float value = chess.turn == WHITE ? -10000.0f : 10000.0f;
