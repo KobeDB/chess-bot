@@ -5,46 +5,51 @@
 #include "array.h"
 #include "basic.h"
 
-enum Piece_Type {
-    PAWN,
-    ROOK,
-    KNIGHT,
-    BISHOP,
-    QUEEN,
-    KING
-};
+// enum Piece_Type {
+//     PAWN,
+//     ROOK,
+//     KNIGHT,
+//     BISHOP,
+//     QUEEN,
+//     KING
+// };
+
+#define PAWN    0
+#define ROOK    1
+#define KNIGHT  2
+#define BISHOP  3
+#define QUEEN   4
+#define KING    5
 
 #define WHITE 0
 #define BLACK 1
 
 struct Move {
-    int piece;
-    int dest_r;
-    int dest_c;
-    int taken_piece = -1;
-    bool is_promotion = false; // if true, piece refers to the pawn, dest_r & dest_c to the promotion location, promoted_type to the promoted piece
-    Piece_Type promotion_type;
-    bool is_castling = false; // if true, piece refers to the king, dest_r & dest_c to the king's castling position
-    int castling_rook = -1; // refers to the rook we are castling with
+    i8 piece;
+    i8 dest_r;
+    i8 dest_c;
+    i8 taken_piece = -1;
+    i8 promotion_type = -1; // if != -1, piece refers to the pawn, dest_r & dest_c to the promotion location, promotion_type to the promoted piece
+    i8 castling_rook = -1; // if != -1, piece refers to the king, dest_r & dest_c to the king's castling position, castling_rook to the rook we're castling with
 };
 
 struct Piece {
-    Piece_Type type {};
-    int color {};
-    int r {};
-    int c {};
+    i8 type {};
+    i8 color {};
+    i8 r {};
+    i8 c {};
     bool has_moved = false;
     bool taken = false;
-    int index; // piece's own index in the pieces array, this is probably dumb but whatever
+    i8 index; // piece's own index in the pieces array, this is probably dumb but whatever
 
     Piece() {}
 
-    Piece(Piece_Type type, int color, int r, int c, int index) : type{type}, color{color}, r{r}, c{c}, index{index} {}
+    Piece(i8 type, i8 color, i8 r, i8 c, i8 index) : type{type}, color{color}, r{r}, c{c}, index{index} {}
 };
 
 struct Chess {
     Piece pieces[32] {};
-    int turn = WHITE;
+    i8 turn = WHITE;
 
     Chess() {
         reset();
@@ -55,9 +60,9 @@ struct Chess {
         turn = WHITE;
 
         // init pawns
-        for (int i = 0; i < 8; ++i) {
+        for (i8 i = 0; i < 8; ++i) {
             pieces[i] = Piece{PAWN, WHITE, 1, i, i};
-            pieces[i + 16] = Piece{PAWN, BLACK, 6, i, i + 16};
+            pieces[i + 16] = Piece{PAWN, BLACK, 6, i, (i8)(i + 16)};
         }
 
         // other pieces
@@ -65,17 +70,17 @@ struct Chess {
         setup_back_pieces(BLACK);
     }
 
-    void setup_back_pieces(int color) {
-        int off = color == WHITE ? 0 : 16;
-        int row = color == WHITE ? 0 : 7;
-        pieces[off + 8]     = Piece{ ROOK,   color, row, 0, off + 8 };
-        pieces[off + 9]     = Piece{ KNIGHT, color, row, 1, off + 9 };
-        pieces[off + 10]    = Piece{ BISHOP, color, row, 2, off + 10 };
-        pieces[off + 11]    = Piece{ QUEEN,  color, row, 3, off + 11 };
-        pieces[off + 12]    = Piece{ KING,   color, row, 4, off + 12 };
-        pieces[off + 13]    = Piece{ BISHOP, color, row, 5, off + 13 };
-        pieces[off + 14]    = Piece{ KNIGHT, color, row, 6, off + 14 };
-        pieces[off + 15]    = Piece{ ROOK,   color, row, 7, off + 15 };
+    void setup_back_pieces(i8 color) {
+        i8 off = color == WHITE ? 0 : 16;
+        i8 row = color == WHITE ? 0 : 7;
+        pieces[off + 8]     = Piece{ ROOK,   color, row, 0, (i8)(off + 8) };
+        pieces[off + 9]     = Piece{ KNIGHT, color, row, 1, (i8)(off + 9) };
+        pieces[off + 10]    = Piece{ BISHOP, color, row, 2, (i8)(off + 10) };
+        pieces[off + 11]    = Piece{ QUEEN,  color, row, 3, (i8)(off + 11) };
+        pieces[off + 12]    = Piece{ KING,   color, row, 4, (i8)(off + 12) };
+        pieces[off + 13]    = Piece{ BISHOP, color, row, 5, (i8)(off + 13) };
+        pieces[off + 14]    = Piece{ KNIGHT, color, row, 6, (i8)(off + 14) };
+        pieces[off + 15]    = Piece{ ROOK,   color, row, 7, (i8)(off + 15) };
     }
 
     void to_board(const Piece **board) const {
@@ -89,7 +94,6 @@ struct Chess {
     void post_process_pawn_move_and_push_onto_move_arena(Move &move, int pawn_color, Array<Move> &move_arena) const {
         if (move.dest_r == 7 && pawn_color == WHITE || move.dest_r == 0 && pawn_color == BLACK) {
             // The pawn must promote => push only promotion moves in result
-            move.is_promotion = true;
             move.promotion_type = QUEEN;
             move_arena.push(move);
             move.promotion_type = ROOK;
@@ -117,7 +121,7 @@ struct Chess {
         const Piece *board[64] {};
         to_board(board);
 
-        for (int i = 0; i < 32; ++i) {
+        for (i8 i = 0; i < 32; ++i) {
             const Piece &piece = pieces[i];
             if (piece.taken) continue;
             if (piece.color != turn) continue;
@@ -126,10 +130,10 @@ struct Chess {
                 
                 case PAWN: {
                     // normal forward step
-                    int steps_forward = (piece.r == 1 && piece.color == WHITE || piece.r == 6 && piece.color == BLACK) ? 2 : 1;
-                    int step_dir = piece.color == WHITE ? 1 : -1;
-                    for (int step = 0; step < steps_forward; ++step) {
-                        int next_row = piece.r + (step+1) * step_dir;
+                    i8 steps_forward = (piece.r == 1 && piece.color == WHITE || piece.r == 6 && piece.color == BLACK) ? 2 : 1;
+                    i8 step_dir = piece.color == WHITE ? 1 : -1;
+                    for (i8 step = 0; step < steps_forward; ++step) {
+                        i8 next_row = piece.r + (step+1) * step_dir;
                         if (board[to_index(next_row, piece.c)]) break; // break to prevent pawn teleporting through blocking pieces
 
                         Move move {};
@@ -143,11 +147,11 @@ struct Chess {
                     }
 
                     // capturing
-                    for (int attack_c_off = -1; attack_c_off <= 1; ++attack_c_off) {
+                    for (i8 attack_c_off = -1; attack_c_off <= 1; ++attack_c_off) {
                         if (attack_c_off == 0) continue;
 
-                        int attack_c = piece.c + attack_c_off;
-                        int attack_r = piece.r + step_dir;
+                        i8 attack_c = piece.c + attack_c_off;
+                        i8 attack_r = piece.r + step_dir;
 
                         if (!is_valid_pos(attack_r, attack_c)) continue;
                         
@@ -209,7 +213,6 @@ struct Chess {
                                 move.piece = piece_at_king_pos->index;
                                 move.dest_r = piece_at_king_pos->r;
                                 move.dest_c = (piece_at_king_pos->c - piece.c) > 0 ? 2 : 6;
-                                move.is_castling = true;
                                 move.castling_rook = piece.index;
                                 if (!does_move_cause_self_check(move)) {
                                     move_arena.push(move);
@@ -239,7 +242,7 @@ struct Chess {
                 } break;
 
                 case KNIGHT: {
-                    const int offsets[] = {
+                    const i8 offsets[] = {
                          2,  1,
                          2, -1,
                         -2,  1,
@@ -250,22 +253,22 @@ struct Chess {
                         -1, -2
                     };
 
-                    for (int off_i = 0; off_i < 8; ++off_i) {
-                        int off_r = offsets[off_i * 2];
-                        int off_c = offsets[off_i * 2 + 1];
-                        int dest_r = piece.r + off_r;
-                        int dest_c = piece.c + off_c;
+                    for (i8 off_i = 0; off_i < 8; ++off_i) {
+                        i8 off_r = offsets[off_i * 2];
+                        i8 off_c = offsets[off_i * 2 + 1];
+                        i8 dest_r = piece.r + off_r;
+                        i8 dest_c = piece.c + off_c;
                         maybe_add_move(move_arena, piece, dest_r, dest_c, board);
                     }
                     
                 } break;
 
                 case KING: {
-                    for (int off_r = -1; off_r <= 1; ++off_r) {
-                        for (int off_c = -1; off_c <= 1; ++off_c) {
+                    for (i8 off_r = -1; off_r <= 1; ++off_r) {
+                        for (i8 off_c = -1; off_c <= 1; ++off_c) {
                             if (off_r == 0 && off_c == 0) continue;
-                            int dest_r = piece.r + off_r;
-                            int dest_c = piece.c + off_c;
+                            i8 dest_r = piece.r + off_r;
+                            i8 dest_c = piece.c + off_c;
                             maybe_add_move(move_arena, piece, dest_r, dest_c, board);
                         }
                     }
@@ -278,7 +281,7 @@ struct Chess {
         return result;
     }
 
-    bool maybe_add_move(Array<Move> &move_arena, const Piece &piece, int dest_r, int dest_c, const Piece **board) const {
+    bool maybe_add_move(Array<Move> &move_arena, const Piece &piece, i8 dest_r, i8 dest_c, const Piece **board) const {
         if (is_valid_pos(dest_r, dest_c)) {
             const Piece *other_piece = board[to_index(dest_r, dest_c)];
 
@@ -301,15 +304,15 @@ struct Chess {
         return false;
     }
 
-    void add_legal_moves_for_direction(Array<Move> &move_arena, int piece_i, int r, int c, int step_r, int step_c, const Piece **board) const {
-        int cur_r = r + step_r;
-        int cur_c = c + step_c;
+    void add_legal_moves_for_direction(Array<Move> &move_arena, int piece_i, i8 r, i8 c, i8 step_r, i8 step_c, const Piece **board) const {
+        i8 cur_r = r + step_r;
+        i8 cur_c = c + step_c;
         while (is_valid_pos(cur_r, cur_c)) {
             defer ( { cur_r += step_r; cur_c += step_c; } );
             const Piece *other_piece = board[to_index(cur_r, cur_c)];
             if (other_piece && other_piece->color != turn) {
                 Move move {};
-                move.piece = piece_i;
+                move.piece = (i8)piece_i;
                 move.dest_r = cur_r;
                 move.dest_c = cur_c;
                 move.taken_piece = other_piece->index;
@@ -325,7 +328,7 @@ struct Chess {
 
             // other_piece == nullptr => empty square
             Move move {};
-            move.piece = piece_i;
+            move.piece = (i8)piece_i;
             move.dest_r = cur_r;
             move.dest_c = cur_c;
             if (!does_move_cause_self_check(move)) {
@@ -334,16 +337,16 @@ struct Chess {
         }
     }
 
-    void get_taken_pieces(int *taken_pieces, int &taken_pieces_count, int color) const {
-        taken_pieces_count = 0;
-        for (int i = 0; i <32; ++i) {
-            const Piece &piece = pieces[i];
-            if (piece.taken && piece.color == color) {
-                taken_pieces[taken_pieces_count] = i;
-                ++taken_pieces_count;
-            }
-        }
-    }
+    // void get_taken_pieces(int *taken_pieces, int &taken_pieces_count, int color) const {
+    //     taken_pieces_count = 0;
+    //     for (int i = 0; i <32; ++i) {
+    //         const Piece &piece = pieces[i];
+    //         if (piece.taken && piece.color == color) {
+    //             taken_pieces[taken_pieces_count] = i;
+    //             ++taken_pieces_count;
+    //         }
+    //     }
+    // }
 
     Chess next_state(const Move &move) const {
         Chess next = *this;
@@ -360,11 +363,11 @@ struct Chess {
             next.pieces[move.taken_piece].c = -1;
         }
 
-        if (move.is_promotion) {
+        if (move.promotion_type != -1) {
             next.pieces[move.piece].type = move.promotion_type;
         }
 
-        if (move.is_castling) {
+        if (move.castling_rook != -1) {
             // we already moved the king (move.piece refers to the king), now move the rook
             next.pieces[move.castling_rook].r = move.dest_r;
             next.pieces[move.castling_rook].c = move.dest_c == 2 ? 3 : 5;
@@ -600,6 +603,7 @@ Minimax_Result minimax(Array<Move> &move_arena, const Chess &chess) {
 
     clock_t start = clock();
 
+    
     move_arena.clear();
 
     Move best_move {};
@@ -748,7 +752,7 @@ void print_move(const Move &move, const Chess &chess) {
 int main() {
 
     Array<Move> move_arena {};
-    move_arena.reserve(100000000);
+    move_arena.reserve(1000000000);
     move_arena.lock_capacity();
 
     Chess chess {};
@@ -763,6 +767,7 @@ int main() {
         }
         chess.draw();
         Minimax_Result cpu_move = minimax(move_arena, chess);
+        printf("Move arena size after calculating cpu move: %d\n", move_arena.size());
         chess = chess.next_state(cpu_move.best_move);
         print_move(cpu_move.best_move, chess);
         chess.draw();
