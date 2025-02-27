@@ -6,6 +6,7 @@
 #include "basic.h"
 
 int bitScanForward(u64 bb);
+int bitScanReverse(u64 bb);
 
 const u64 row_mask[8] = {
     0xffULL,
@@ -20,6 +21,39 @@ const u64 row_mask[8] = {
 
 inline int to_index(int r, int c) {
     return r * 8 + c;
+}
+
+inline bool in_bounds(int r, int c) {
+    return r >= 0 && r < 8 && c >= 0 && c < 8; 
+}
+
+u64 ray_attacks[8][64] {};
+
+inline u64 get_ray_attack_for_dir(int r, int c, int step_r, int step_c) {
+    u64 dir_attacks = 0;
+    int cur_r = r + step_r;
+    int cur_c = c + step_c;
+    while (in_bounds(cur_r, cur_c)) {
+        dir_attacks |= (1ULL << to_index(cur_r, cur_c));
+        cur_r += step_r;
+        cur_c += step_c;
+    }
+    return dir_attacks;
+}
+
+inline void init_ray_attacks() {
+    for (int r = 0; r < 8; ++r) {
+        for (int c = 0; c < 8; ++c) {
+            ray_attacks[0][to_index(r,c)] |= get_ray_attack_for_dir(r,c,  1,  0);
+            ray_attacks[1][to_index(r,c)] |= get_ray_attack_for_dir(r,c,  1,  1);
+            ray_attacks[2][to_index(r,c)] |= get_ray_attack_for_dir(r,c,  0,  1);
+            ray_attacks[3][to_index(r,c)] |= get_ray_attack_for_dir(r,c, -1,  1);
+            ray_attacks[4][to_index(r,c)] |= get_ray_attack_for_dir(r,c, -1,  0);
+            ray_attacks[5][to_index(r,c)] |= get_ray_attack_for_dir(r,c, -1, -1);
+            ray_attacks[6][to_index(r,c)] |= get_ray_attack_for_dir(r,c,  0, -1);
+            ray_attacks[7][to_index(r,c)] |= get_ray_attack_for_dir(r,c,  1, -1);
+        }
+    }
 }
 
 #define PAWN    0
@@ -86,6 +120,11 @@ struct Chess {
         }
     }
 
+    struct Square_Info {
+        i8 piece_type;
+        i8 color;
+    };
+
     struct Move_Arena_Span {
         size_t first;
         size_t opl;
@@ -96,16 +135,16 @@ struct Chess {
         
         result.first = move_arena.size();
 
-        // I think this is a bad idea for perf.. maybe fix later
-        i8 board[64] {};
-        for (int i = 0; i < 64; ++i) board[i] = -1;
+        // I think this is a bad idea for perf.. have to fix later
+        Square_Info board[64] {};
+        for (int i = 0; i < 64; ++i) board[i] = {-1, -1};
         for (int color = 0; color < 2; ++color) {
             for (int p = 0; p < 6; ++p) {
                 u64 bb = boards[color][p];
                 while (bb) {
                     int index = bitScanForward(bb);
                     bb &= bb-1;
-                    board[index] = (i8)p;
+                    board[index] = {(i8)p, (i8)color};
                 }
             }
         }
@@ -113,38 +152,40 @@ struct Chess {
         u64 occupied[2] {};
         for (int color = 0; color < 2; ++color) for (int p = 0; p < 6; ++p) occupied[color] |= boards[color][p];
 
+        u64 occupied_full = occupied[WHITE] + occupied[BLACK];
+
         const u64 empty = (occupied[0] | occupied[1]) ^ -1ULL;
 
         // pawn moves
-        for (int color = 0; color < 2; ++color) {
-            u64 pawns = boards[color][PAWN];
+        {
+            u64 pawns = boards[turn][PAWN];
 
-            u64 one_moves = color == WHITE ? (pawns << 8) : (pawns >> 8);
+            u64 one_moves = turn == WHITE ? (pawns << 8) : (pawns >> 8);
             one_moves &= empty;
             while (one_moves) {
                 int dest = bitScanForward(one_moves);
                 one_moves &= one_moves-1;
 
                 Move move {};
-                move.src = color == WHITE ? dest - 8 : dest + 8;
+                move.src = turn == WHITE ? dest - 8 : dest + 8;
                 move.dest = dest;
                 move.piece_type = PAWN;
-                move.color = color;
+                move.color = turn;
 
                 post_process_pawn_move_and_push_onto_move_arena(move, move_arena);
             }
 
-            u64 two_moves = color == WHITE ? ((pawns & row_mask[1]) << 16) : ((pawns & row_mask[6]) >> 16);
+            u64 two_moves = turn == WHITE ? ((pawns & row_mask[1]) << 16) : ((pawns & row_mask[6]) >> 16);
             two_moves &= empty;
             while (two_moves) {
                 int dest = bitScanForward(two_moves);
                 two_moves &= two_moves-1;
                 
                 Move move {};
-                move.src = color == WHITE ? dest - 16 : dest + 16;
+                move.src = turn == WHITE ? dest - 16 : dest + 16;
                 move.dest = dest;
                 move.piece_type = PAWN;
-                move.color = color;
+                move.color = turn;
                 //printf("src: %d, dest: %d\n", move.src, move.dest);
 
                 move_arena.push(move);
@@ -153,48 +194,103 @@ struct Chess {
             const u64 not_file_a = 0xfefefefefefefefeULL;
             const u64 not_file_h = 0x7f7f7f7f7f7f7f7fULL;
 
-            u64 left_attacks = color == WHITE ? (pawns & not_file_a) << 7 : (pawns & not_file_h) >> 7;
-            left_attacks &= occupied[color == WHITE ? BLACK : WHITE];
-            //printf("Color: %d", color);
-            //print_bitboard(left_attacks);
+            u64 left_attacks = turn == WHITE ? (pawns & not_file_a) << 7 : (pawns & not_file_h) >> 7;
+            left_attacks &= occupied[turn == WHITE ? BLACK : WHITE];
             while (left_attacks) {
                 int dest = bitScanForward(left_attacks);
                 left_attacks &= left_attacks-1;
 
                 Move move {};
                 move.dest = dest;
-                move.src = color == WHITE ? dest-7 : dest+7;
+                move.src = turn == WHITE ? dest-7 : dest+7;
                 move.piece_type = PAWN;
-                move.color = color;
-                move.captured_type = board[move.dest];
+                move.color = turn;
+                move.captured_type = board[move.dest].piece_type;
 
                 post_process_pawn_move_and_push_onto_move_arena(move, move_arena);
             }
 
-            u64 right_attacks = color == WHITE ? (pawns & not_file_h) << 9 : (pawns & not_file_a) >> 9;
-            right_attacks &= occupied[color == WHITE ? BLACK : WHITE];
+            u64 right_attacks = turn == WHITE ? (pawns & not_file_h) << 9 : (pawns & not_file_a) >> 9;
+            right_attacks &= occupied[turn == WHITE ? BLACK : WHITE];
             while (right_attacks) {
                 int dest = bitScanForward(right_attacks);
                 right_attacks &= right_attacks-1;
 
                 Move move {};
                 move.dest = dest;
-                move.src = color == WHITE ? dest-9 : dest+9;
+                move.src = turn == WHITE ? dest-9 : dest+9;
                 move.piece_type = PAWN;
-                move.color = color;
-                move.captured_type = board[move.dest];
+                move.color = turn;
+                move.captured_type = board[move.dest].piece_type;
 
                 post_process_pawn_move_and_push_onto_move_arena(move, move_arena);
             }
         }
 
         // rook moves
-        for (int color = 0; color < 2; ++color) {
-            
+        {
+            u64 rooks = boards[turn][ROOK];
+            while (rooks) {
+                int rook_pos = bitScanForward(rooks);
+                rooks &= rooks-1;
+
+                add_sliding_attacks(move_arena, 0, rook_pos, ROOK, board, occupied_full);
+                add_sliding_attacks(move_arena, 2, rook_pos, ROOK, board, occupied_full);
+                add_sliding_attacks(move_arena, 4, rook_pos, ROOK, board, occupied_full);
+                add_sliding_attacks(move_arena, 6, rook_pos, ROOK, board, occupied_full);
+            }
         }
 
         result.opl = move_arena.size();
         return result;
+    }
+
+    void add_sliding_attacks(Array<Move> &move_arena, i8 dir, i8 pos, i8 piece_type, const Square_Info *board, u64 occupied) const {
+        u64 attacks = 0;
+        if (dir == 7 || dir == 0 || dir == 1 || dir == 2) {
+            attacks = get_positive_ray_attacks(occupied, dir, pos);
+        } else {
+            attacks = get_negative_ray_attacks(occupied, dir, pos);
+        }
+        
+        while (attacks) {
+            int dest = bitScanForward(attacks);
+            attacks &= attacks-1;
+
+            Move move {};
+            move.src = pos;
+            move.dest = dest;
+            move.piece_type = piece_type;
+
+            if (board[dest].piece_type != -1) {
+                if (board[dest].color == turn) { continue; }
+                else {
+                    move.captured_type = board[dest].piece_type;
+                }
+            }
+
+            move_arena.push(move);
+        }
+    }
+
+    u64 get_positive_ray_attacks(u64 occupied, i8 dir, i8 square) const {
+        u64 attacks = ray_attacks[dir][square];
+        u64 blockers = attacks & occupied;
+        if (blockers) {
+            int blocker_square = bitScanForward(blockers);
+            attacks ^= ray_attacks[dir][blocker_square];
+        }
+        return attacks;
+    }
+
+    u64 get_negative_ray_attacks(u64 occupied, i8 dir, i8 square) const {
+        u64 attacks = ray_attacks[dir][square];
+        u64 blockers = attacks & occupied;
+        if (blockers) {
+            int blocker_square = bitScanReverse(blockers);
+            attacks ^= ray_attacks[dir][blocker_square];
+        }
+        return attacks;
     }
 
     void print_bitboard(u64 bitboard) const {
@@ -320,6 +416,25 @@ inline int bitScanForward(u64 bb) {
    return index64[((bb ^ (bb-1)) * debruijn64) >> 58];
 }
 
+/**
+ * bitScanReverse
+ * @authors Kim Walisch, Mark Dickinson
+ * @param bb bitboard to scan
+ * @precondition bb != 0
+ * @return index (0..63) of most significant one bit
+ */
+inline int bitScanReverse(u64 bb) {
+   const u64 debruijn64 = 0x03f79d71b4cb0a89ULL;
+   assert (bb != 0);
+   bb |= bb >> 1; 
+   bb |= bb >> 2;
+   bb |= bb >> 4;
+   bb |= bb >> 8;
+   bb |= bb >> 16;
+   bb |= bb >> 32;
+   return index64[(bb * debruijn64) >> 58];
+}
+
 // void print_legal_moves(const Chess &chess, Chess::Legal_Moves_Result legal_moves, const Array<Move> &move_arena) {
 //     printf("Legal moves:\n");   
 //     for (size_t i = legal_moves.first; i < legal_moves.opl; ++i) {
@@ -346,6 +461,8 @@ inline char piece_to_char(i8 piece_type, i8 color) {
 
     return result;
 }
+
+
 
 Move get_user_move(Array<Move> &move_arena, Chess &chess, bool &move_ok) {
     auto legal_moves = chess.pseudo_legal_moves(move_arena);
@@ -421,6 +538,8 @@ Move get_user_move(Array<Move> &move_arena, Chess &chess, bool &move_ok) {
 int main() {
 
     printf("Hello there\n");
+
+    init_ray_attacks();
 
     Array<Move> move_arena {};
     move_arena.reserve(1000000000);
