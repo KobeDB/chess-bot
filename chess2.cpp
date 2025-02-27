@@ -257,16 +257,14 @@ struct Chess {
             int dest = bitScanForward(attacks);
             attacks &= attacks-1;
 
+            if (board[dest].piece_type != -1 && board[dest].color == turn) continue;
+
             Move move {};
             move.src = pos;
             move.dest = dest;
             move.piece_type = piece_type;
-
             if (board[dest].piece_type != -1) {
-                if (board[dest].color == turn) { continue; }
-                else {
-                    move.captured_type = board[dest].piece_type;
-                }
+                move.captured_type = board[dest].piece_type;
             }
 
             move_arena.push(move);
