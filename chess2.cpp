@@ -37,7 +37,8 @@ struct Move {
     i8 dest;
     i8 piece_type;
     i8 color;
-    i8 captured_type;
+    i8 captured_type = -1;
+    i8 promotion_type = -1;
 };
 
 struct Chess {
@@ -68,6 +69,21 @@ struct Chess {
         boards[color][BISHOP]  = 0b00100100ULL << (8 * 7 * color);
         boards[color][QUEEN]   = 0b00001000ULL << (8 * 7 * color);
         boards[color][KING]    = 0b00010000ULL << (8 * 7 * color);
+    }
+
+    void post_process_pawn_move_and_push_onto_move_arena(Move &move, Array<Move> &move_arena) const {
+        if ((move.color == WHITE && move.dest / 8 == 7) || (move.color == BLACK && move.dest / 8 == 0)) {
+            move.promotion_type = QUEEN;
+            move_arena.push(move);
+            move.promotion_type = ROOK;
+            move_arena.push(move);
+            move.promotion_type = KNIGHT;
+            move_arena.push(move);
+            move.promotion_type = BISHOP;
+            move_arena.push(move);
+        } else {
+            move_arena.push(move);
+        }
     }
 
     struct Move_Arena_Span {
@@ -108,15 +124,14 @@ struct Chess {
             while (one_moves) {
                 int dest = bitScanForward(one_moves);
                 one_moves &= one_moves-1;
-                
+
                 Move move {};
                 move.src = color == WHITE ? dest - 8 : dest + 8;
                 move.dest = dest;
                 move.piece_type = PAWN;
                 move.color = color;
-                //printf("src: %d, dest: %d\n", move.src, move.dest);
 
-                move_arena.push(move);
+                post_process_pawn_move_and_push_onto_move_arena(move, move_arena);
             }
 
             u64 two_moves = color == WHITE ? ((pawns & row_mask[1]) << 16) : ((pawns & row_mask[6]) >> 16);
@@ -152,7 +167,8 @@ struct Chess {
                 move.piece_type = PAWN;
                 move.color = color;
                 move.captured_type = board[move.dest];
-                move_arena.push(move);
+
+                post_process_pawn_move_and_push_onto_move_arena(move, move_arena);
             }
 
             u64 right_attacks = color == WHITE ? (pawns & not_file_h) << 9 : (pawns & not_file_a) >> 9;
@@ -167,8 +183,14 @@ struct Chess {
                 move.piece_type = PAWN;
                 move.color = color;
                 move.captured_type = board[move.dest];
-                move_arena.push(move);
+
+                post_process_pawn_move_and_push_onto_move_arena(move, move_arena);
             }
+        }
+
+        // rook moves
+        for (int color = 0; color < 2; ++color) {
+            
         }
 
         result.opl = move_arena.size();
@@ -204,7 +226,14 @@ struct Chess {
         boards[move.color][move.piece_type] &= ((1ULL << move.src) ^ -1ULL);
         boards[move.color][move.piece_type] |= (1ULL << move.dest);
         
-        boards[move.color == WHITE ? BLACK : WHITE][move.captured_type] &= ((1ULL << move.dest) ^ -1ULL);
+        if (move.captured_type != -1) {
+            boards[move.color == WHITE ? BLACK : WHITE][move.captured_type] &= ((1ULL << move.dest) ^ -1ULL);
+        }
+
+        if (move.promotion_type != -1) {
+            boards[move.color][move.piece_type] &= ((1ULL << move.dest) ^ -1ULL);
+            boards[move.color][move.promotion_type] |= (1ULL << move.dest);
+        }
     }
 
     bool is_check() const {
