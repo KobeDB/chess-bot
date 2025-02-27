@@ -241,6 +241,38 @@ struct Chess {
             }
         }
 
+        // bishop moves
+        {
+            u64 bb = boards[turn][BISHOP];
+            while (bb) {
+                int pos = bitScanForward(bb);
+                bb &= bb-1;
+
+                add_sliding_attacks(move_arena, 1, pos, BISHOP, board, occupied_full);
+                add_sliding_attacks(move_arena, 3, pos, BISHOP, board, occupied_full);
+                add_sliding_attacks(move_arena, 5, pos, BISHOP, board, occupied_full);
+                add_sliding_attacks(move_arena, 7, pos, BISHOP, board, occupied_full);
+            }
+        }
+
+        // queen moves
+        {
+            u64 bb = boards[turn][QUEEN];
+            while (bb) {
+                int pos = bitScanForward(bb);
+                bb &= bb-1;
+
+                add_sliding_attacks(move_arena, 1, pos, QUEEN, board, occupied_full);
+                add_sliding_attacks(move_arena, 3, pos, QUEEN, board, occupied_full);
+                add_sliding_attacks(move_arena, 5, pos, QUEEN, board, occupied_full);
+                add_sliding_attacks(move_arena, 7, pos, QUEEN, board, occupied_full);
+                add_sliding_attacks(move_arena, 0, pos, QUEEN, board, occupied_full);
+                add_sliding_attacks(move_arena, 2, pos, QUEEN, board, occupied_full);
+                add_sliding_attacks(move_arena, 4, pos, QUEEN, board, occupied_full);
+                add_sliding_attacks(move_arena, 6, pos, QUEEN, board, occupied_full);
+            }
+        }
+
         result.opl = move_arena.size();
         return result;
     }
