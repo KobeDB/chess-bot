@@ -645,8 +645,6 @@ struct Chess {
         boards[prev_turn][move.piece_type] |= (1ULL << move.src);
         boards[prev_turn][move.piece_type] &= ((1ULL << move.dest) ^ -1ULL);
 
-        print_bitboard(prev_has_moved);
-
         has_moved = prev_has_moved;
 
         if (move.captured_type != -1) {
@@ -888,7 +886,7 @@ Minimax_Result minimax(Array<Move> &move_arena, Chess &chess) {
     move_arena.clear();
 
     Move best_move {};
-    float value = minimax(move_arena, chess, 0, 1, &best_move, -999999.0f, 999999.0f);
+    float value = minimax(move_arena, chess, 0, 5, &best_move, -999999.0f, 999999.0f);
 
     clock_t end = clock();
     double elapsed = ((double)(end-start))/CLOCKS_PER_SEC;
