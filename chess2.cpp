@@ -213,7 +213,8 @@ struct Chess {
         }
 
         u64 occupied[2] {};
-        for (int color = 0; color < 2; ++color) for (int p = 0; p < 6; ++p) occupied[color] |= boards[color][p];
+        occupied[WHITE] = get_occupied(WHITE);
+        occupied[BLACK] = get_occupied(BLACK);
 
         u64 occupied_full = occupied[WHITE] + occupied[BLACK];
 
@@ -662,7 +663,8 @@ struct Chess {
     }
 
     bool is_check() const {
-        return false;
+        u64 threats = get_threats(turn==WHITE ? BLACK : WHITE, get_occupied(WHITE), get_occupied(BLACK));
+        return (threats & boards[turn][KING]) != 0;
     }
 
     // bool is_check_mate(Array<Move> &move_arena) const {
@@ -675,6 +677,13 @@ struct Chess {
     //     return !is_check() && moves.first == moves.opl;
     // }
     
+
+    u64 get_occupied(i8 color) const {
+        u64 result = 0;
+        for (int i = 0; i < 6; ++i) result |= boards[color][i];
+        return result;
+    }
+
     bool is_valid_pos(int row, int col) const {
         return row >= 0 && row < 8 && col >= 0 && col < 8; 
     }
@@ -884,6 +893,9 @@ int main() {
     while (true) {
         bool user_move_ok = false;
         while (!user_move_ok) {
+            if (chess.is_check()) {
+                printf("%d in CHECK!\n", chess.turn);
+            }
             Move user_move = get_user_move(move_arena, chess, user_move_ok);
             if (!user_move_ok) printf("That's an illegal move. Try Again...\n");
             else chess.next_state(user_move);
