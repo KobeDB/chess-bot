@@ -91,6 +91,31 @@ inline void init_knight_attacks() {
     }
 }
 
+u64 king_attacks[64] {};
+
+inline u64 king_attack_for_pos(int r, int c) {
+    u64 result = 0;
+
+    for (int step_r = -1; step_r <= 1; ++step_r) {
+        for (int step_c = -1; step_c <= 1; ++step_c) {
+            if (step_r == 0 && step_c == 0) continue;
+            int dest_r = r+step_r;
+            int dest_c = c+step_c;
+            if (in_bounds(dest_r, dest_c)) result |= (1ULL << to_index(dest_r, dest_c)); 
+        }
+    }
+
+    return result;
+}
+
+inline void init_king_attacks() {
+    for (int r = 0; r < 8; ++r) {
+        for (int c = 0; c < 8; ++c) {
+            king_attacks[to_index(r,c)] = king_attack_for_pos(r,c);
+        }
+    }
+}
+
 #define PAWN    0
 #define ROOK    1
 #define KNIGHT  2
@@ -274,7 +299,12 @@ struct Chess {
 
         // king moves
         {
-            // TODO
+            u64 bb = boards[turn][KING];
+            assert(bb);
+            int king_pos = bitScanForward(bb);
+
+            u64 attacks = king_attacks[king_pos] ^ (king_attacks[king_pos] & occupied[turn]);
+            push_attacks_on_move_arena(attacks, king_pos, KING, board, move_arena);
         }
 
         //castling moves
@@ -443,7 +473,10 @@ struct Chess {
 
         // king threats
         {
-
+            u64 bb = boards[color][KING];
+            assert(bb);
+            int king_pos = bitScanForward(bb);
+            result |= king_attacks[king_pos];
         }
 
         // rook threats
@@ -815,6 +848,7 @@ int main() {
 
     init_ray_attacks();
     init_knight_attacks();
+    init_king_attacks();
 
     Array<Move> move_arena {};
     move_arena.reserve(1000000000);
