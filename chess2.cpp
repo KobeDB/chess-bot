@@ -844,23 +844,25 @@ float evaluate_board(const Chess &chess) {
     
     float value = 0.0f;
 
-    for (int p = 0; p < 6; ++p) {
-        float piece_value = 0;
-        switch (p) {
-            case PAWN: piece_value = 1.0f; break;
-            case KNIGHT: piece_value = 5.0f; break;
-            case ROOK: piece_value = 10.0f; break;
-            case BISHOP: piece_value = 10.0f; break;
-            case QUEEN: piece_value = 90.0f; break;
-            case KING: piece_value = 100.0f; break;
-            default: break;
-        }
-        
-        u64 bb = chess.boards[chess.turn][p];
-        while (bb) {
-            bb &= bb-1;
-            if (chess.turn == WHITE) value += piece_value;
-            else                     value -= piece_value;   
+    for (int color = 0; color < 2; ++color) {
+        for (int p = 0; p < 6; ++p) {
+            float piece_value = 0;
+            switch (p) {
+                case PAWN: piece_value = 1.0f; break;
+                case KNIGHT: piece_value = 5.0f; break;
+                case ROOK: piece_value = 10.0f; break;
+                case BISHOP: piece_value = 10.0f; break;
+                case QUEEN: piece_value = 90.0f; break;
+                case KING: piece_value = 100.0f; break;
+                default: break;
+            }
+            
+            u64 bb = chess.boards[color][p];
+            while (bb) {
+                bb &= bb-1;
+                if (color==WHITE) value += piece_value;
+                else              value -= piece_value;   
+            }
         }
     }
 
