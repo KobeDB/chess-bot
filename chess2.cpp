@@ -107,7 +107,8 @@ struct Move {
     i8 piece_type;
     i8 captured_type = -1;
     i8 promotion_type = -1;
-    i8 castling_rook = -1;
+    i8 castling_rook_src = -1;
+    i8 castling_rook_dest = -1;
 };
 
 struct Chess {
@@ -276,30 +277,33 @@ struct Chess {
             // TODO
         }
 
-        // castling moves
-        // {
-        //     u64 has_not_moved = has_moved ^ -1ULL;
-        //     if (turn == WHITE) {
-        //         if ((has_not_moved & 0b00010001ULL) == 0b00010001ULL) {
-        //             // queenside castling
-        //             u64 threats = get_threats(BLACK);
-        //             u64 not_threats = threats ^ -1ULL;
-        //             if ((not_threats & 0b00011100ULL) == 0b00011100ULL && (empty & 0b00001110ULL) == 0b00001110ULL) {
-        //                 Move move {};
-        //                 move.src = 4; // we will move the king
-        //                 move.dest = 2;
-        //                 move.piece_type = KING;
-        //                 move.castling_rook = 0;
-        //                 move_arena.push(move);
-        //             }
-        //         }
-        //         if ((has_not_moved & 0b10010000ULL) == 0b10010000ULL) {
-        //             // kingside castling
-        //         }
-        //     } else {
+        //castling moves
+        {
+            u64 has_not_moved = has_moved ^ -1ULL;
+            u64 threats = get_threats(BLACK, occupied[WHITE], occupied[BLACK]);
+            u64 not_threats = threats ^ -1ULL;
 
-        //     }
-        // }
+            if (turn == WHITE) {
+                bool queenside_rook_not_taken = boards[turn][ROOK] & 1ULL;
+                if (queenside_rook_not_taken && (has_not_moved & 0b00010001ULL) == 0b00010001ULL) {
+                    // queenside castling
+                    if ((not_threats & 0b00011100ULL) == 0b00011100ULL && (empty & 0b00001110ULL) == 0b00001110ULL) {
+                        Move move {};
+                        move.src = 4; // we will move the king
+                        move.dest = 2;
+                        move.piece_type = KING;
+                        move.castling_rook_src = 0;
+                        move.castling_rook_dest = 3;
+                        move_arena.push(move);
+                    }
+                }
+                if ((has_not_moved & 0b10010000ULL) == 0b10010000ULL) {
+                    // kingside castling
+                }
+            } else {
+
+            }
+        }
 
         // rook moves
         {
@@ -363,12 +367,21 @@ struct Chess {
 
         // pawn threats
         {
+            u64 pawns = boards[color][PAWN];
 
+            const u64 not_file_a = 0xfefefefefefefefeULL;
+            const u64 not_file_h = 0x7f7f7f7f7f7f7f7fULL;
+
+            u64 left_attacks = color == WHITE ? (pawns & not_file_a) << 7 : (pawns & not_file_h) >> 7;
+            result |= left_attacks;
+
+            u64 right_attacks = color == WHITE ? (pawns & not_file_h) << 9 : (pawns & not_file_a) >> 9;
+            result |= right_attacks;
         }
 
         // knight threats
         {
-            u64 bb = boards[turn][KNIGHT];
+            u64 bb = boards[color][KNIGHT];
             while (bb) {
                 int src = bitScanForward(bb);
                 bb &= bb-1;
@@ -529,7 +542,17 @@ struct Chess {
             boards[turn][move.promotion_type] |= (1ULL << move.dest);
         }
 
+        if (move.castling_rook_src != -1) {
+            boards[turn][ROOK] &= ((1ULL << move.castling_rook_src) ^ -1ULL);
+            boards[turn][ROOK] |= (1ULL << move.castling_rook_dest);
+            has_moved |= (1ULL << move.castling_rook_src);
+        }
+
         turn = turn==WHITE ? BLACK : WHITE;
+    }
+
+    void undo_move(const Move &move) {
+        // TODO
     }
 
     bool is_check() const {
