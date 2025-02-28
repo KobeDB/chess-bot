@@ -279,11 +279,11 @@ struct Chess {
 
         //castling moves
         {
-            u64 has_not_moved = has_moved ^ -1ULL;
-            u64 threats = get_threats(BLACK, occupied[WHITE], occupied[BLACK]);
-            u64 not_threats = threats ^ -1ULL;
-
             if (turn == WHITE) {
+                u64 has_not_moved = has_moved ^ -1ULL;
+                u64 threats = get_threats(BLACK, occupied[WHITE], occupied[BLACK]);
+                u64 not_threats = threats ^ -1ULL;
+
                 bool queenside_rook_not_taken = boards[turn][ROOK] & 1ULL;
                 if (queenside_rook_not_taken && (has_not_moved & 0b00010001ULL) == 0b00010001ULL) {
                     // queenside castling
@@ -297,11 +297,62 @@ struct Chess {
                         move_arena.push(move);
                     }
                 }
-                if ((has_not_moved & 0b10010000ULL) == 0b10010000ULL) {
+
+                bool kingside_rook_not_taken = boards[turn][ROOK] & (1ULL << 7);
+                if (kingside_rook_not_taken && (has_not_moved & 0b10010000ULL) == 0b10010000ULL) {
                     // kingside castling
+                    if ((not_threats & 0b01110000ULL) == 0b01110000ULL &&
+                        (empty & 0b01100000ULL) == 0b01100000ULL) {
+                        Move move {};
+                        move.src = 4;
+                        move.dest = 6;
+                        move.piece_type = KING;
+                        move.castling_rook_src = 7;
+                        move.castling_rook_dest = 5;
+                        move_arena.push(move);
+                    }
                 }
             } else {
+                u64 has_not_moved = has_moved ^ -1ULL;
+                u64 threats = get_threats(WHITE, occupied[WHITE], occupied[BLACK]);
+                u64 not_threats = threats ^ -1ULL;
+        
+                bool queenside_rook_not_taken = boards[turn][ROOK] & (1ULL << 56);
+                if (queenside_rook_not_taken &&
+                    (has_not_moved & ((1ULL << 60) | (1ULL << 56))) ==
+                    ((1ULL << 60) | (1ULL << 56))) {
 
+                    if ((not_threats & ((1ULL << 60) | (1ULL << 59) | (1ULL << 58))) ==
+                        ((1ULL << 60) | (1ULL << 59) | (1ULL << 58)) &&
+                        (empty & ((1ULL << 57) | (1ULL << 58) | (1ULL << 59))) ==
+                        ((1ULL << 57) | (1ULL << 58) | (1ULL << 59))) {
+                        Move move {};
+                        move.src = 60;
+                        move.dest = 58;
+                        move.piece_type = KING;
+                        move.castling_rook_src = 56;
+                        move.castling_rook_dest = 59;
+                        move_arena.push(move);
+                    }
+                }
+        
+                bool kingside_rook_not_taken = boards[turn][ROOK] & (1ULL << 63);
+                if (kingside_rook_not_taken &&
+                    (has_not_moved & ((1ULL << 60) | (1ULL << 63))) ==
+                    ((1ULL << 60) | (1ULL << 63))) {
+                    if ((not_threats & ((1ULL << 60) | (1ULL << 61) | (1ULL << 62))) ==
+                        ((1ULL << 60) | (1ULL << 61) | (1ULL << 62)) &&
+                        (empty & ((1ULL << 61) | (1ULL << 62))) ==
+                        ((1ULL << 61) | (1ULL << 62))) {
+                        Move move {};
+                        move.src = 60;
+                        move.dest = 62;
+                        move.piece_type = KING;
+                        move.castling_rook_src = 63;
+                        move.castling_rook_dest = 61;
+                        move_arena.push(move);
+                    }
+                }
             }
         }
 
