@@ -1,0 +1,1 @@
+g++ chess2.cpp -o chess2

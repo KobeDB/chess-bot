@@ -107,10 +107,12 @@ struct Move {
     i8 piece_type;
     i8 captured_type = -1;
     i8 promotion_type = -1;
+    i8 castling_rook = -1;
 };
 
 struct Chess {
     u64 boards[2][6] {};
+    u64 has_moved = 0;
 
     i8 turn = WHITE;
 
@@ -265,20 +267,7 @@ struct Chess {
                 bb &= bb-1;
 
                 u64 attacks = knight_attacks[src] ^ (knight_attacks[src] & occupied[turn]);
-                while (attacks) {
-                    int dest = bitScanForward(attacks);
-                    attacks &= attacks-1;
-
-                    Move move {};
-                    move.src = src;
-                    move.dest = dest;
-                    move.piece_type = KNIGHT;
-                    if (board[move.dest].piece_type != -1) {
-                        move.captured_type = board[move.dest].piece_type;
-                    }
-
-                    move_arena.push(move);
-                }
+                push_attacks_on_move_arena(attacks, src, KNIGHT, board, move_arena);
             }
         }
 
@@ -287,6 +276,31 @@ struct Chess {
             // TODO
         }
 
+        // castling moves
+        // {
+        //     u64 has_not_moved = has_moved ^ -1ULL;
+        //     if (turn == WHITE) {
+        //         if ((has_not_moved & 0b00010001ULL) == 0b00010001ULL) {
+        //             // queenside castling
+        //             u64 threats = get_threats(BLACK);
+        //             u64 not_threats = threats ^ -1ULL;
+        //             if ((not_threats & 0b00011100ULL) == 0b00011100ULL && (empty & 0b00001110ULL) == 0b00001110ULL) {
+        //                 Move move {};
+        //                 move.src = 4; // we will move the king
+        //                 move.dest = 2;
+        //                 move.piece_type = KING;
+        //                 move.castling_rook = 0;
+        //                 move_arena.push(move);
+        //             }
+        //         }
+        //         if ((has_not_moved & 0b10010000ULL) == 0b10010000ULL) {
+        //             // kingside castling
+        //         }
+        //     } else {
+
+        //     }
+        // }
+
         // rook moves
         {
             u64 rooks = boards[turn][ROOK];
@@ -294,44 +308,32 @@ struct Chess {
                 int rook_pos = bitScanForward(rooks);
                 rooks &= rooks-1;
 
-                add_sliding_attacks(move_arena, 0, rook_pos, ROOK, board, occupied_full);
-                add_sliding_attacks(move_arena, 2, rook_pos, ROOK, board, occupied_full);
-                add_sliding_attacks(move_arena, 4, rook_pos, ROOK, board, occupied_full);
-                add_sliding_attacks(move_arena, 6, rook_pos, ROOK, board, occupied_full);
+                u64 attacks = get_rook_threats(rook_pos, turn, occupied[WHITE], occupied[BLACK]);
+                push_attacks_on_move_arena(attacks, rook_pos, ROOK, board, move_arena);
             }
-
-            // TODO: castling
         }
 
-        // bishop moves
+        // bishop threats
         {
             u64 bb = boards[turn][BISHOP];
             while (bb) {
                 int pos = bitScanForward(bb);
                 bb &= bb-1;
 
-                add_sliding_attacks(move_arena, 1, pos, BISHOP, board, occupied_full);
-                add_sliding_attacks(move_arena, 3, pos, BISHOP, board, occupied_full);
-                add_sliding_attacks(move_arena, 5, pos, BISHOP, board, occupied_full);
-                add_sliding_attacks(move_arena, 7, pos, BISHOP, board, occupied_full);
+                u64 attacks = get_bishop_threats(pos, turn, occupied[WHITE], occupied[BLACK]);
+                push_attacks_on_move_arena(attacks, pos, BISHOP, board, move_arena);
             }
         }
 
-        // queen moves
+        // queen threats
         {
             u64 bb = boards[turn][QUEEN];
             while (bb) {
                 int pos = bitScanForward(bb);
                 bb &= bb-1;
 
-                add_sliding_attacks(move_arena, 1, pos, QUEEN, board, occupied_full);
-                add_sliding_attacks(move_arena, 3, pos, QUEEN, board, occupied_full);
-                add_sliding_attacks(move_arena, 5, pos, QUEEN, board, occupied_full);
-                add_sliding_attacks(move_arena, 7, pos, QUEEN, board, occupied_full);
-                add_sliding_attacks(move_arena, 0, pos, QUEEN, board, occupied_full);
-                add_sliding_attacks(move_arena, 2, pos, QUEEN, board, occupied_full);
-                add_sliding_attacks(move_arena, 4, pos, QUEEN, board, occupied_full);
-                add_sliding_attacks(move_arena, 6, pos, QUEEN, board, occupied_full);
+                u64 attacks = get_queen_threats(pos, turn, occupied[WHITE], occupied[BLACK]);
+                push_attacks_on_move_arena(attacks, pos, QUEEN, board, move_arena);
             }
         }
 
@@ -339,19 +341,10 @@ struct Chess {
         return result;
     }
 
-    void add_sliding_attacks(Array<Move> &move_arena, i8 dir, i8 pos, i8 piece_type, const Square_Info *board, u64 occupied) const {
-        u64 attacks = 0;
-        if (dir == 7 || dir == 0 || dir == 1 || dir == 2) {
-            attacks = get_positive_ray_attacks(occupied, dir, pos);
-        } else {
-            attacks = get_negative_ray_attacks(occupied, dir, pos);
-        }
-        
+    void push_attacks_on_move_arena(u64 attacks, i8 pos, i8 piece_type, const Square_Info *board, Array<Move> &move_arena) const {
         while (attacks) {
             int dest = bitScanForward(attacks);
             attacks &= attacks-1;
-
-            if (board[dest].piece_type != -1 && board[dest].color == turn) continue;
 
             Move move {};
             move.src = pos;
@@ -363,6 +356,117 @@ struct Chess {
 
             move_arena.push(move);
         }
+    }
+
+    u64 get_threats(i8 color, u64 occupied_white, u64 occupied_black) const {
+        u64 result = 0;
+
+        // pawn threats
+        {
+
+        }
+
+        // knight threats
+        {
+            u64 bb = boards[turn][KNIGHT];
+            while (bb) {
+                int src = bitScanForward(bb);
+                bb &= bb-1;
+
+                result |= knight_attacks[src] ^ (knight_attacks[src] & (color==WHITE ? occupied_white : occupied_black));
+            }
+        }
+
+        // king threats
+        {
+
+        }
+
+        // rook threats
+        {
+            u64 bb = boards[color][ROOK];
+            while (bb) {
+                int pos = bitScanForward(bb);
+                bb &= bb-1;
+
+                result |= get_rook_threats(pos, color, occupied_white, occupied_black);
+            }
+        }
+
+        // bishop threats
+        {
+            u64 bb = boards[color][BISHOP];
+            while (bb) {
+                int pos = bitScanForward(bb);
+                bb &= bb-1;
+
+                result |= get_bishop_threats(pos, color, occupied_white, occupied_black);
+            }
+        }
+
+        // queen threats
+        {
+            u64 bb = boards[color][QUEEN];
+            while (bb) {
+                int pos = bitScanForward(bb);
+                bb &= bb-1;
+
+                result |= get_queen_threats(pos, color, occupied_white, occupied_black);
+            }
+        }
+        
+        return result;
+    }
+
+    u64 get_rook_threats(i8 pos, i8 color, u64 occupied_white, u64 occupied_black) const {
+        u64 result = 0;
+
+        i8 piece_type = ROOK;
+        result |= get_sliding_threats(0, pos, piece_type, color, occupied_white, occupied_black);
+        result |= get_sliding_threats(2, pos, piece_type, color, occupied_white, occupied_black);
+        result |= get_sliding_threats(4, pos, piece_type, color, occupied_white, occupied_black);
+        result |= get_sliding_threats(6, pos, piece_type, color, occupied_white, occupied_black);
+
+        return result;
+    }
+
+    u64 get_bishop_threats(i8 pos, i8 color, u64 occupied_white, u64 occupied_black) const {
+        u64 result = 0;
+
+        i8 piece_type = BISHOP;
+        result |= get_sliding_threats(1, pos, piece_type, color, occupied_white, occupied_black);
+        result |= get_sliding_threats(3, pos, piece_type, color, occupied_white, occupied_black);
+        result |= get_sliding_threats(5, pos, piece_type, color, occupied_white, occupied_black);
+        result |= get_sliding_threats(7, pos, piece_type, color, occupied_white, occupied_black);
+
+        return result;
+    }
+
+    u64 get_queen_threats(i8 pos, i8 color, u64 occupied_white, u64 occupied_black) const {
+        u64 result = 0;
+
+        i8 piece_type = QUEEN;
+        result |= get_sliding_threats(0, pos, piece_type, color, occupied_white, occupied_black);
+        result |= get_sliding_threats(2, pos, piece_type, color, occupied_white, occupied_black);
+        result |= get_sliding_threats(4, pos, piece_type, color, occupied_white, occupied_black);
+        result |= get_sliding_threats(6, pos, piece_type, color, occupied_white, occupied_black);
+        result |= get_sliding_threats(1, pos, piece_type, color, occupied_white, occupied_black);
+        result |= get_sliding_threats(3, pos, piece_type, color, occupied_white, occupied_black);
+        result |= get_sliding_threats(5, pos, piece_type, color, occupied_white, occupied_black);
+        result |= get_sliding_threats(7, pos, piece_type, color, occupied_white, occupied_black);
+
+        return result;
+    }
+
+    u64 get_sliding_threats(i8 dir, i8 pos, i8 piece_type, i8 piece_color, u64 occupied_white, u64 occupied_black) const {
+        u64 attacks = 0;
+        if (dir == 7 || dir == 0 || dir == 1 || dir == 2) {
+            attacks = get_positive_ray_attacks(occupied_white | occupied_black, dir, pos);
+        } else {
+            attacks = get_negative_ray_attacks(occupied_white | occupied_black, dir, pos);
+        }
+
+        return attacks ^ (attacks & (piece_color==WHITE ? occupied_white : occupied_black));
     }
 
     u64 get_positive_ray_attacks(u64 occupied, i8 dir, i8 square) const {
@@ -413,6 +517,8 @@ struct Chess {
     void next_state(const Move &move) {
         boards[turn][move.piece_type] &= ((1ULL << move.src) ^ -1ULL);
         boards[turn][move.piece_type] |= (1ULL << move.dest);
+
+        has_moved |= (1ULL << move.src);
         
         if (move.captured_type != -1) {
             boards[turn == WHITE ? BLACK : WHITE][move.captured_type] &= ((1ULL << move.dest) ^ -1ULL);
