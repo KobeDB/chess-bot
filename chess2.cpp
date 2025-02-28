@@ -663,19 +663,55 @@ struct Chess {
     }
 
     bool is_check() const {
-        u64 threats = get_threats(turn==WHITE ? BLACK : WHITE, get_occupied(WHITE), get_occupied(BLACK));
-        return (threats & boards[turn][KING]) != 0;
+        return is_check(turn);
     }
 
-    // bool is_check_mate(Array<Move> &move_arena) const {
-    //     auto moves = legal_moves(move_arena);
-    //     return is_check() && moves.first == moves.opl;
-    // }
+    bool is_check(i8 color) const {
+        u64 threats = get_threats(color==WHITE ? BLACK : WHITE, get_occupied(WHITE), get_occupied(BLACK));
+        return (threats & boards[color][KING]) != 0;
+    }
 
-    // bool is_stalemate(Array<Move> &move_arena) const {
-    //     auto moves = legal_moves(move_arena);
-    //     return !is_check() && moves.first == moves.opl;
-    // }
+    bool is_check_mate(Array<Move> &move_arena) {
+
+        if (!is_check()) return false;
+
+        auto moves = pseudo_legal_moves(move_arena);
+
+        bool legal_moves_left = false;
+        for (int i = moves.first; i < moves.opl; ++i) {
+            const Move &move = move_arena[i];
+            next_state(move);
+            if (!is_check(turn)) {
+                legal_moves_left = true;
+                undo_move(move);
+                break;
+            }
+            undo_move(move);
+        }
+
+        return !legal_moves_left;
+    }
+
+    bool is_stalemate(Array<Move> &move_arena) {
+
+        if (is_check()) return false;
+
+        auto moves = pseudo_legal_moves(move_arena);
+
+        bool legal_moves_left = false;
+        for (int i = moves.first; i < moves.opl; ++i) {
+            const Move &move = move_arena[i];
+            next_state(move);
+            if (!is_check(turn)) {
+                legal_moves_left = true;
+                undo_move(move);
+                break;
+            }
+            undo_move(move);
+        }
+
+        return !legal_moves_left;
+    }
     
 
     u64 get_occupied(i8 color) const {
@@ -801,6 +837,124 @@ inline char piece_to_char(i8 piece_type, i8 color) {
 }
 
 
+int evaluations = 0;
+
+float evaluate_board(const Chess &chess) {
+    ++evaluations;
+    
+    float value = 0.0f;
+
+    for (int p = 0; p < 6; ++p) {
+        float piece_value = 0;
+        switch (p) {
+            case PAWN: piece_value = 1.0f; break;
+            case KNIGHT: piece_value = 5.0f; break;
+            case ROOK: piece_value = 10.0f; break;
+            case BISHOP: piece_value = 10.0f; break;
+            case QUEEN: piece_value = 90.0f; break;
+            case KING: piece_value = 100.0f; break;
+            default: break;
+        }
+        
+        u64 bb = chess.boards[chess.turn][p];
+        while (bb) {
+            bb &= bb-1;
+            if (chess.turn == WHITE) value += piece_value;
+            else                     value -= piece_value;   
+        }
+    }
+
+    return value;
+}
+
+struct Minimax_Result {
+    Move best_move;
+    float value;
+};
+
+float minimax(Array<Move> &move_arena, Chess &chess, int depth, int max_depth, Move *best_move, float alpha, float beta);
+
+Minimax_Result minimax(Array<Move> &move_arena, Chess &chess) {
+    evaluations = 0;
+
+    clock_t start = clock();
+
+    
+    move_arena.clear();
+
+    Move best_move {};
+    float value = minimax(move_arena, chess, 0, 5, &best_move, -999999.0f, 999999.0f);
+
+    clock_t end = clock();
+    double elapsed = ((double)(end-start))/CLOCKS_PER_SEC;
+
+    double evaluations_per_second = ((double)evaluations)/elapsed;
+    printf("evaluations/s: %f\n", evaluations_per_second);
+
+    return {best_move, value};
+}
+
+float minimax(Array<Move> &move_arena, Chess &chess, int depth, int max_depth, Move *best_move, float alpha, float beta) {
+    
+    if ((evaluations % 100000) == 0) printf("nodes visited: %d\n", evaluations);
+
+    if (chess.is_check_mate(move_arena)) {
+        float value = chess.turn == WHITE ? -10000.0f : 10000.0f;
+        return value;
+    }
+
+    if (chess.is_stalemate(move_arena)) {
+        return 0;
+    }
+
+    if (depth >= max_depth) {
+        return evaluate_board(chess);
+    }
+
+    float best_value = chess.turn == WHITE ? -99999.0f : 99999.0f;
+
+    auto moves = chess.pseudo_legal_moves(move_arena);
+
+    for (size_t i = moves.first; i < moves.opl; ++i) {
+        const Move &move = move_arena[i];
+        i8 turn = chess.turn;
+        chess.next_state(move);
+        
+        // Undo move if it is illegal and skip to next candidate move
+        if (chess.is_check(turn)) {
+            chess.undo_move(move);
+            continue;
+        }
+
+        float child_value = minimax(move_arena, chess, depth+1, max_depth, nullptr, alpha, beta);
+
+        // Undo move after we visited the child
+        chess.undo_move(move);
+
+        if (chess.turn == WHITE) {
+            if (child_value > best_value) {
+                best_value = child_value;
+                if (best_move) *best_move = move;
+            }
+            if (best_value > alpha) {
+                alpha = best_value;
+            }
+            if (alpha >= beta) break;
+        }
+        else {
+            if (child_value < best_value) {
+                best_value = child_value;
+                if (best_move) *best_move = move;
+            }
+            if (best_value < beta) {
+                beta = best_value;
+            }
+            if (beta <= alpha) break;
+        }
+    }
+
+    return best_value;
+}
 
 Move get_user_move(Array<Move> &move_arena, Chess &chess, bool &move_ok) {
     auto legal_moves = chess.pseudo_legal_moves(move_arena);
@@ -891,15 +1045,24 @@ int main() {
     chess.pseudo_legal_moves(move_arena);
 
     while (true) {
+        if (chess.is_check()) {
+            printf("%d in CHECK!\n", chess.turn);
+        }
+
         bool user_move_ok = false;
         while (!user_move_ok) {
-            if (chess.is_check()) {
-                printf("%d in CHECK!\n", chess.turn);
-            }
+
             Move user_move = get_user_move(move_arena, chess, user_move_ok);
             if (!user_move_ok) printf("That's an illegal move. Try Again...\n");
             else chess.next_state(user_move);
         }
+
+        Minimax_Result cpu_move = minimax(move_arena, chess);
+        chess.next_state(cpu_move.best_move);
+
+        printf("Move arena size after calculating cpu move: %d\n", move_arena.size());
+        
         chess.draw();
+
     }
 }
