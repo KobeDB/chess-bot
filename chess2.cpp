@@ -116,6 +116,31 @@ inline void init_king_attacks() {
     }
 }
 
+void print_bitboard(u64 bitboard) {
+    char board[64] {};
+    for (int i = 0; i < 64; ++i) board[i] = '0';
+
+    for (u64 i = 0; i < 64; ++i) {
+        if (bitboard & (1ULL << i)) board[i] = '1';
+    }
+
+    printf("============\n");
+
+    for (int r = 7; r >= 0; --r) {
+        printf("%d  ", r + 1);
+        for (int c = 0; c < 8; ++c) {
+            printf("%c ", board[c + 8*r]);
+        }
+        printf("\n");
+    }
+
+    printf("\n   ");
+    for (int c = 0; c < 8; ++c) {
+        printf("%c ", 'a' + c);
+    }
+    printf("\n");
+}
+
 #define PAWN    0
 #define ROOK    1
 #define KNIGHT  2
@@ -139,7 +164,6 @@ struct Move {
 struct Chess {
     u64 boards[2][6] {};
     u64 has_moved = 0;
-    u64 prev_has_moved = 0;
 
     i8 turn = WHITE;
 
@@ -588,36 +612,11 @@ struct Chess {
         return attacks;
     }
 
-    void print_bitboard(u64 bitboard) const {
-        char board[64] {};
-        for (int i = 0; i < 64; ++i) board[i] = '.';
-
-        for (u64 i = 0; i < 64; ++i) {
-            if (bitboard & (1ULL << i)) board[i] = 'X';
-        }
-
-        printf("============\n");
-
-        for (int r = 7; r >= 0; --r) {
-            printf("%d  ", r + 1);
-            for (int c = 0; c < 8; ++c) {
-                printf("%c ", board[c + 8*r]);
-            }
-            printf("\n");
-        }
-
-        printf("\n   ");
-        for (int c = 0; c < 8; ++c) {
-            printf("%c ", 'a' + c);
-        }
-        printf("\n");
-    }
-
-    void next_state(const Move &move) {
+    u64 next_state(const Move &move) {
         boards[turn][move.piece_type] &= ((1ULL << move.src) ^ -1ULL);
         boards[turn][move.piece_type] |= (1ULL << move.dest);
 
-        prev_has_moved = has_moved; // save has_moved for undo_move
+        u64 prev_has_moved = has_moved; // save has_moved for undo_move
         has_moved |= (1ULL << move.src);
         
         if (move.captured_type != -1) {
@@ -636,13 +635,17 @@ struct Chess {
         }
 
         turn = turn==WHITE ? BLACK : WHITE;
+
+        return prev_has_moved;
     }
 
-    void undo_move(const Move &move) {
+    void undo_move(const Move &move, u64 prev_has_moved) {
         i8 prev_turn = turn==WHITE ? BLACK : WHITE;
 
         boards[prev_turn][move.piece_type] |= (1ULL << move.src);
         boards[prev_turn][move.piece_type] &= ((1ULL << move.dest) ^ -1ULL);
+
+        print_bitboard(prev_has_moved);
 
         has_moved = prev_has_moved;
 
@@ -680,13 +683,13 @@ struct Chess {
         bool legal_moves_left = false;
         for (int i = moves.first; i < moves.opl; ++i) {
             const Move &move = move_arena[i];
-            next_state(move);
+            u64 prev_has_moved = next_state(move);
             if (!is_check(turn)) {
                 legal_moves_left = true;
-                undo_move(move);
+                undo_move(move, prev_has_moved);
                 break;
             }
-            undo_move(move);
+            undo_move(move, prev_has_moved);
         }
 
         return !legal_moves_left;
@@ -701,13 +704,13 @@ struct Chess {
         bool legal_moves_left = false;
         for (int i = moves.first; i < moves.opl; ++i) {
             const Move &move = move_arena[i];
-            next_state(move);
+            u64 prev_has_moved = next_state(move);
             if (!is_check(turn)) {
                 legal_moves_left = true;
-                undo_move(move);
+                undo_move(move, prev_has_moved);
                 break;
             }
-            undo_move(move);
+            undo_move(move, prev_has_moved);
         }
 
         return !legal_moves_left;
@@ -885,7 +888,7 @@ Minimax_Result minimax(Array<Move> &move_arena, Chess &chess) {
     move_arena.clear();
 
     Move best_move {};
-    float value = minimax(move_arena, chess, 0, 5, &best_move, -999999.0f, 999999.0f);
+    float value = minimax(move_arena, chess, 0, 1, &best_move, -999999.0f, 999999.0f);
 
     clock_t end = clock();
     double elapsed = ((double)(end-start))/CLOCKS_PER_SEC;
@@ -920,18 +923,18 @@ float minimax(Array<Move> &move_arena, Chess &chess, int depth, int max_depth, M
     for (size_t i = moves.first; i < moves.opl; ++i) {
         const Move &move = move_arena[i];
         i8 turn = chess.turn;
-        chess.next_state(move);
+        u64 prev_has_moved = chess.next_state(move);
         
         // Undo move if it is illegal and skip to next candidate move
         if (chess.is_check(turn)) {
-            chess.undo_move(move);
+            chess.undo_move(move, prev_has_moved);
             continue;
         }
 
         float child_value = minimax(move_arena, chess, depth+1, max_depth, nullptr, alpha, beta);
 
         // Undo move after we visited the child
-        chess.undo_move(move);
+        chess.undo_move(move, prev_has_moved);
 
         if (chess.turn == WHITE) {
             if (child_value > best_value) {
@@ -993,6 +996,14 @@ Move get_user_move(Array<Move> &move_arena, Chess &chess, bool &move_ok) {
     for (size_t i = legal_moves.first; i < legal_moves.opl; ++i) {
         const Move &move = move_arena[i];
 
+        i8 turn = chess.turn;
+        u64 prev_has_moved = chess.next_state(move);
+        if (chess.is_check(turn)) {
+            chess.undo_move(move, prev_has_moved);
+            continue;
+        }
+        chess.undo_move(move, prev_has_moved);
+
         if (move.dest == to_index(r,c) && piece_to_char(move.piece_type, chess.turn) == piece) {
             ambiguous_moves[ambiguous_moves_count] = i;
             ++ambiguous_moves_count;
@@ -1029,6 +1040,13 @@ Move get_user_move(Array<Move> &move_arena, Chess &chess, bool &move_ok) {
     }
 }
 
+void print_move(const Move &move, i8 turn) {
+    char piece_char = piece_to_char(move.piece_type, turn);
+    char col_char = (move.dest % 8) + 'a';
+    int dest_r = (move.dest / 8);
+    printf("move: %c to %c%d\n", piece_char, col_char, dest_r + 1);
+}
+
 int main() {
 
     printf("Hello there\n");
@@ -1043,6 +1061,7 @@ int main() {
 
     Chess chess {};
     chess.draw();
+    print_bitboard(chess.has_moved);
 
     chess.pseudo_legal_moves(move_arena);
 
@@ -1060,11 +1079,13 @@ int main() {
         }
 
         Minimax_Result cpu_move = minimax(move_arena, chess);
+        print_move(cpu_move.best_move, chess.turn);
         chess.next_state(cpu_move.best_move);
 
         printf("Move arena size after calculating cpu move: %d\n", move_arena.size());
         
         chess.draw();
+        //print_bitboard(chess.has_moved);
 
     }
 }
