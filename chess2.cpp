@@ -139,6 +139,7 @@ struct Move {
 struct Chess {
     u64 boards[2][6] {};
     u64 has_moved = 0;
+    u64 prev_has_moved = 0;
 
     i8 turn = WHITE;
 
@@ -615,6 +616,7 @@ struct Chess {
         boards[turn][move.piece_type] &= ((1ULL << move.src) ^ -1ULL);
         boards[turn][move.piece_type] |= (1ULL << move.dest);
 
+        prev_has_moved = has_moved; // save has_moved for undo_move
         has_moved |= (1ULL << move.src);
         
         if (move.captured_type != -1) {
@@ -636,7 +638,27 @@ struct Chess {
     }
 
     void undo_move(const Move &move) {
-        // TODO
+        i8 prev_turn = turn==WHITE ? BLACK : WHITE;
+
+        boards[prev_turn][move.piece_type] |= (1ULL << move.src);
+        boards[prev_turn][move.piece_type] &= ((1ULL << move.dest) ^ -1ULL);
+
+        has_moved = prev_has_moved;
+
+        if (move.captured_type != -1) {
+            boards[prev_turn == WHITE ? BLACK : WHITE][move.captured_type] |= (1ULL << move.dest);
+        }
+
+        if (move.promotion_type != -1) {
+            boards[prev_turn][move.promotion_type] &= ((1ULL << move.dest) ^ -1ULL);
+        }
+
+        if (move.castling_rook_src != -1) {
+            boards[prev_turn][ROOK] &= ((1ULL << move.castling_rook_dest) ^ -1ULL);
+            boards[prev_turn][ROOK] |= (1ULL << move.castling_rook_src);
+        }
+
+        turn = prev_turn;
     }
 
     bool is_check() const {
