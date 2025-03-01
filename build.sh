@@ -1,0 +1,1 @@
+g++ chess_bot.cpp -o chess_bot -O3
